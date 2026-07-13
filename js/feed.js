@@ -153,10 +153,40 @@ function createJobElement(jobId, jobData) {
     const currentSpeed = jobSpeeds[jobId] || machineConfig.speed;
     const duration = Math.round(calculateJobDuration(jobData, jobId));
     const printingTime = Math.round(jobData.quantity / currentSpeed);
+    
     const awStatus = jobData.awStatus || jobData.status || 'Missing Data';
     const statusColor = statusColorMap[awStatus] || '#6c757d';
     const statusDisplay = statusDisplayMap[awStatus] || awStatus || 'Unknown';
+    
+    // Format the status date - only date, no time
+    let statusDateFormatted = '';
+    if (jobData.statusDate) {
+        const dateObj = new Date(jobData.statusDate);
+        if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900) {
+            statusDateFormatted = formatDateOnly(dateObj);
+        } else {
+            statusDateFormatted = '01/01/1900';
+        }
+    } else {
+        statusDateFormatted = '01/01/1900';
+    }
+    
+    // Merge AW status with date
+    const awDisplayText = `AW: ${statusDisplay} since: ${statusDateFormatted}`;
+    
     const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
+    
+    // Format estimated date - only date, no time
+    let estimatedDateFormatted = '';
+    let estimatedDisplayText = '';
+    if (jobData.estimatedDate) {
+        const dateObj = new Date(jobData.estimatedDate);
+        if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900) {
+            estimatedDateFormatted = formatDateOnly(dateObj);
+            estimatedDisplayText = `Est: ${estimatedDateFormatted}`;
+        }
+    }
+    const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
     job.innerHTML = `
         <div class="job-name">
@@ -166,11 +196,15 @@ function createJobElement(jobId, jobData) {
         <div class="job-details">
             <div class="job-duration">${duration} min</div>
             <div class="job-breakdown">
-                <span class="job-status-badge" style="color:${statusColor}">AW: ${statusDisplay}</span>
+                <span class="job-status-badge" style="color:${statusColor}">${awDisplayText}</span>
+                ${showEstimated && estimatedDisplayText ? 
+                    `<span class="job-estimated-date" style="color:${statusColor}; background-color:${statusColor}15; border-color:${statusColor}40; font-size:8px; padding:1px 4px; border-radius:3px; border:1px solid;">
+                        ${estimatedDisplayText}
+                    </span>` : ''
+                }
             </div>
         </div>
         <div class="job-time" id="time-${jobId}">Calculating...</div>
-        <!-- REMOVED: <div class="job-time-range"></div> - This was the duplicate -->
         <div class="job-editable-fields">
             <div class="job-field-group">
                 <label>Setup (min):
@@ -202,6 +236,7 @@ function createJobElement(jobId, jobData) {
         </div>
     `;
     
+    // Setup input event listeners (unchanged)
     const setupInput = job.querySelector('.job-setup-input');
     if (setupInput) {
         setupInput.addEventListener('change', function(e) {
@@ -251,7 +286,6 @@ function createJobElement(jobId, jobData) {
     
     return job;
 }
-
 function createFeedJobElement(jobId, jobData) {
     const feedJob = document.createElement('div');
     feedJob.className = 'feed-job';
@@ -259,39 +293,66 @@ function createFeedJobElement(jobId, jobData) {
     feedJob.setAttribute('draggable', 'true');
     
     const duration = calculateJobDuration(jobData, jobId);
+    
+    // AW status
     let awStatus = jobData.rawAWStatus || jobData.awStatus || jobData.status || 'Missing Data';
-    if (awStatus === '' || awStatus === 'Pending') awStatus = 'Unknown';
+    if (awStatus === '' || awStatus === 'Pending') {
+        awStatus = 'Unknown';
+    }
     
     const statusColor = statusColorMap[awStatus] || '#6c757d';
     const statusDisplay = statusDisplayMap[awStatus] || awStatus || 'Unknown';
-    const statusDisplayWithAW = `AW: ${statusDisplay}`;
-    const plStatus = jobData.planningStatus || 'Unprinted';
-    const plDisplayStatus = statusDisplayMap[plStatus] || plStatus || 'Unknown';
-    const plStatusColor = statusColorMap[plStatus] || '#6c757d';
-    const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
     
+    // Format the status date - only date, no time
     let statusDateFormatted = '';
     if (jobData.statusDate) {
         const dateObj = new Date(jobData.statusDate);
         if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900) {
-            statusDateFormatted = formatDateTime(dateObj);
+            statusDateFormatted = formatDateOnly(dateObj);
         } else {
-            statusDateFormatted = '01/01/1900 00:00';
+            statusDateFormatted = '01/01/1900';
         }
     } else {
-        statusDateFormatted = '01/01/1900 00:00';
+        statusDateFormatted = '01/01/1900';
     }
+    
+    // PL status
+    const plStatus = jobData.planningStatus || 'Unprinted';
+    const plDisplayStatus = statusDisplayMap[plStatus] || plStatus || 'Unknown';
+    const plStatusColor = statusColorMap[plStatus] || '#6c757d';
+    
+    const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
+    
+    // Format estimated date - only date, no time
+    let estimatedDateFormatted = '';
+    let estimatedDisplayText = '';
+    if (jobData.estimatedDate) {
+        const dateObj = new Date(jobData.estimatedDate);
+        if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900) {
+            estimatedDateFormatted = formatDateOnly(dateObj);
+            estimatedDisplayText = `AW: Est: ${estimatedDateFormatted}`;
+        }
+    }
+    
+    // Check if estimated date should be shown
+    const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
     feedJob.innerHTML = `
         <div class="feed-item-content">
             <span class="feed-job-number">${jobNumber}</span>
             <span class="feed-job-name">${jobData.name || 'Unnamed'}</span>
-            <span class="feed-status" 
-                  data-raw-status="${awStatus}"
-                  style="background-color:${statusColor}20; color:${statusColor}; border:1px solid ${statusColor}40;">
-                ${statusDisplayWithAW}
-            </span>
-            <span class="feed-status-date">${statusDateFormatted}</span>
+            <div class="feed-status-wrapper">
+                <span class="feed-status" 
+                      data-raw-status="${awStatus}"
+                      style="background-color:${statusColor}20; color:${statusColor}; border:1px solid ${statusColor}40;">
+                    AW: ${statusDisplay} since: ${statusDateFormatted}
+                </span>
+                ${showEstimated && estimatedDisplayText ? 
+                    `<span class="feed-estimated-date" style="color:${statusColor}; background-color:${statusColor}15; border-color:${statusColor}40;">
+                        ${estimatedDisplayText}
+                    </span>` : ''
+                }
+            </div>
             <span class="feed-pl-status" 
                   data-raw-pl-status="${plStatus}"
                   style="background-color:${plStatusColor}20; color:${plStatusColor}; border:1px solid ${plStatusColor}40;">
@@ -306,6 +367,16 @@ function createFeedJobElement(jobId, jobData) {
     });
     
     return feedJob;
+}
+// ============================================================
+// FORMAT DATE ONLY - "08/03/2026"
+// ============================================================
+function formatDateOnly(date) {
+    if (!date || isNaN(date.getTime())) return '01/01/1900';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
 }
 
 // ============================================================
