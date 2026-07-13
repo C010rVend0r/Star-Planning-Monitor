@@ -1,0 +1,307 @@
+<!-- machineTimeLine.html - Updated -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planning Monitor · Prepress</title>
+        <!-- FOR FAVICON -->
+        <link rel="icon" type="image/png" href="img/Star Logo2.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- HEADER -->
+    <header class="header">
+        <h1>
+            <img src="img/Star Logo.png" alt="Star Logo" style="height: 99px; vertical-align: middle; margin-right: 12px;">
+            Planning Monitor
+        </h1>
+        <div class="header-right">
+            <span class="current-time" id="current-time" style="padding: 12px;">Loading...</span>
+        </div>
+    </header>
+
+    <!-- STATISTICS -->
+    <div class="stats-container">
+        <div class="stat-card"><div class="stat-label">Planned Jobs</div><div class="stat-value" id="stat-planned">0</div></div>
+        <div class="stat-card"><div class="stat-label">Pending Jobs</div><div class="stat-value" id="stat-pending">0</div></div>
+        <div class="stat-card"><div class="stat-label">Real Time</div><div class="stat-value">Need Update</div></div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="main-container">
+        <!-- MACHINES SECTION -->
+        <div class="machines-section">
+            <div class="section-header">
+                <h2><i class="fas fa-desktop"></i> Machine Timelines</h2>
+                <div class="header-actions">
+                    <div class="zoom-controls">
+                        <button class="btn btn-zoom" id="zoom-out"><i class="fas fa-search-minus"></i></button>
+                        <span class="zoom-level" id="zoom-level">100%</span>
+                        <button class="btn btn-zoom" id="zoom-in"><i class="fas fa-search-plus"></i></button>
+                        <button class="btn btn-zoom" id="zoom-reset"><i class="fas fa-undo"></i></button>
+                    </div>
+                    <button class="btn" id="refresh-timelines"><i class="fas fa-sync-alt"></i> Refresh</button>
+                </div>
+            </div>
+            <div class="machines-scroll-container" id="machines-scroll-container">
+                <!-- machines 207–211 -->
+                <div class="machine" data-machine="211">
+                    <div class="machine-header">
+                        <span class="machine-id"><i class=""></i> Machine 211</span>
+                        <span class="machine-status status-idle">Idle</span>
+                    </div>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-container" id="timeline-container-211">
+                            <div class="timeline" id="timeline-211">
+                                <!-- Timeline ruler will be inserted here by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="machine" data-machine="210">
+                    <div class="machine-header">
+                        <span class="machine-id"><i class=""></i> Machine 210</span>
+                        <span class="machine-status status-idle">Idle</span>
+                    </div>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-container" id="timeline-container-210">
+                            <div class="timeline" id="timeline-210"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="machine" data-machine="208">
+                    <div class="machine-header">
+                        <span class="machine-id"><i class=""></i> Machine 208</span>
+                        <span class="machine-status status-idle">Idle</span>
+                    </div>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-container" id="timeline-container-208">
+                            <div class="timeline" id="timeline-208"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="machine" data-machine="207">
+                    <div class="machine-header">
+                        <span class="machine-id"><i class=""></i> Machine 207</span>
+                        <span class="machine-status status-idle">Idle</span>
+                    </div>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-container" id="timeline-container-207">
+                            <div class="timeline" id="timeline-207"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT SIDEBAR: PRODUCTION FEED -->
+        <div class="right-sidebar">
+            <div class="feed-section">
+                <div class="feed-header">
+                    <h2><i class="fas fa-list-alt"></i> Production Feed</h2>
+                    <div class="feed-controls">
+                        <div class="feed-actions">
+                            <button class="btn btn-upload" id="upload-excel-aw">
+                                <i class="fas fa-file-excel"></i> Upload AW
+                            </button>
+                            <input type="file" id="file-input-aw" accept=".xlsx,.xls" style="display:none">
+                            <button class="btn btn-upload" id="upload-excel-pl">
+                                <i class="fas fa-file-excel"></i> Upload PL
+                            </button>
+                            <input type="file" id="file-input-pl" accept=".xlsx,.xls" style="display:none">
+                            <button class="btn btn-upload btn-download" id="download-excel-pl">
+                                <i class="fas fa-download"></i> Export PL
+                            </button>
+                        </div>
+                        <input type="text" id="job-search" placeholder="Search jobs...">
+                        <button class="btn filter-btn" id="filter-btn">
+                            <i class="fas fa-filter"></i> Filter
+                        </button>
+                    </div>
+                </div>
+                <div class="production-feed-container" id="production-feed-container">
+                    <div id="production-feed-list"></div>
+                </div>
+                <!-- Add Job Form (kept for manual entry) -->
+                <div class="add-job-form">
+                    <h3><i class="fas fa-plus-circle"></i> Add Job (manual)</h3>
+                    <div class="form-row">
+                        <div class="form-group"><label>Job Name</label><input type="text" id="job-name" placeholder="e.g. Brochure #43"></div>
+                        <div class="form-group"><label>Setup (min)</label><input type="number" id="setup-time" placeholder="15"></div>
+                        <div class="form-group"><label>Qty (m)</label><input type="number" id="quantity" placeholder="150"></div>
+                        <button id="add-job" class="btn btn-primary"><i class="fas fa-plus"></i> Add</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Job Details Modal -->
+    <div id="job-details-modal" class="job-modal">
+        <div class="job-modal-content">
+            <div class="job-modal-header">
+                <h2 id="modal-job-title">Job Details</h2>
+                <button class="job-modal-close" id="modal-close-btn">&times;</button>
+            </div>
+            <div class="job-modal-body">
+                <div class="modal-grid">
+                    <div class="modal-column">
+                        <div class="modal-section">
+                            <h3>Basic Information</h3>
+                            <div class="modal-field">
+                                <label>Job Number</label>
+                                <input type="text" id="modal-job-number" class="modal-input" readonly>
+                            </div>
+                            <div class="modal-field">
+                                <label>Job Name</label>
+                                <input type="text" id="modal-job-name" class="modal-input">
+                            </div>
+                            <div class="modal-field">
+                                <label>Machine</label>
+                                <select id="modal-machine" class="modal-input">
+                                    <option value="">Not Assigned</option>
+                                    <option value="207">Machine 207</option>
+                                    <option value="208">Machine 208</option>
+                                    <option value="209">Machine 209</option>
+                                    <option value="210">Machine 210</option>
+                                    <option value="211">Machine 211</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-section">
+                            <h3>Job Parameters</h3>
+                            <div class="modal-field">
+                                <label>Setup Time (min)</label>
+                                <input type="number" id="modal-setup" class="modal-input" min="0" step="1">
+                            </div>
+                            <div class="modal-field">
+                                <label>Quantity (meters)</label>
+                                <input type="number" id="modal-quantity" class="modal-input" min="0" step="1">
+                            </div>
+                            <div class="modal-field">
+                                <label>Speed (m/min)</label>
+                                <input type="number" id="modal-speed" class="modal-input" min="1" step="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-column">
+                        <div class="modal-section">
+                            <h3>Status Information</h3>
+                            <div class="modal-field">
+                                <label>AW Status</label>
+                                <select id="modal-aw-status" class="modal-input">
+                                    <option value="Missing Data">Missing Data</option>
+                                    <option value="Unknown">Unknown</option>
+                                    <option value="1. Under Job-Study">Under Job-Study</option>
+                                    <option value="2. Under QC Check">Under QC Check</option>
+                                    <option value="3. S.C Approval">S.C Approval</option>
+                                    <option value="4. Need S.C Approval">Need S.C Approval</option>
+                                    <option value="5. Working on Cromalin">Working on Cromalin</option>
+                                    <option value="6. Need Cromalin Approval">Need Cromalin Approval</option>
+                                    <option value="7. Cromalin Approval">Cromalin Approval</option>
+                                    <option value="8. Repro: Plate Making">Repro: Plate Making</option>
+                                    <option value="9. Plates are Ready">Plates are Ready</option>
+                                    <option value="Deleted">Deleted</option>
+                                    <option value="On Hold">On Hold</option>
+                                </select>
+                            </div>
+                            <div class="modal-field">
+                                <label>PL Status</label>
+                                <select id="modal-pl-status" class="modal-input">
+                                    <option value="Planned">Planned</option>
+                                    <option value="Unprinted">Unprinted</option>
+                                    <option value="Complete">Complete</option>
+                                    <option value="PL-Deleted">Deleted</option>
+                                    <option value="PL-Hold">Hold</option>
+                                </select>
+                            </div>
+                            <div class="modal-field">
+                                <label>Status Date</label>
+                                <input type="datetime-local" id="modal-status-date" class="modal-input">
+                            </div>
+                        </div>
+                        <div class="modal-section">
+                            <h3>Timeline Information</h3>
+                            <div class="modal-field">
+                                <label>On Timeline</label>
+                                <span id="modal-on-timeline" class="modal-badge">No</span>
+                            </div>
+                            <div class="modal-field">
+                                <label>Start Time</label>
+                                <span id="modal-start-time" class="modal-info-text">Not scheduled</span>
+                            </div>
+                            <div class="modal-field">
+                                <label>End Time</label>
+                                <span id="modal-end-time" class="modal-info-text">Not scheduled</span>
+                            </div>
+                            <div class="modal-field">
+                                <label>Duration</label>
+                                <span id="modal-duration" class="modal-info-text">N/A</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-section" id="modal-pl-data-section">
+                    <h3>Additional Planning Data</h3>
+                    <div class="modal-grid modal-grid-3">
+                        <div class="modal-field">
+                            <label>NEW PLAT</label>
+                            <input type="text" id="modal-new-plat" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Material Availability</label>
+                            <input type="text" id="modal-material-availability" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Delivered</label>
+                            <input type="text" id="modal-delivered" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Delivered 2</label>
+                            <input type="text" id="modal-delivered2" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Cutting Method</label>
+                            <input type="text" id="modal-cutting-method" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Film</label>
+                            <input type="text" id="modal-film" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Thickness</label>
+                            <input type="text" id="modal-thickness" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Material Type</label>
+                            <input type="text" id="modal-material-type" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Downtime</label>
+                            <input type="number" id="modal-downtime" class="modal-input" min="0" step="1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="job-modal-footer">
+                <button class="modal-btn modal-btn-secondary" id="modal-remove-from-timeline">Remove from Timeline</button>
+                <button class="modal-btn modal-btn-secondary" id="modal-add-to-timeline">Add to Timeline</button>
+                <button class="modal-btn modal-btn-primary" id="modal-save-btn">Save Changes</button>
+                <button class="modal-btn modal-btn-secondary" id="modal-cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="js/timeline.js"></script>
+    <script src="js/feed.js"></script>
+    <script src="js/upload.js"></script>
+    <script src="js/modal.js"></script>
+    <script src="js/main.js"></script>
+
+</body>
+</html>
+
+
