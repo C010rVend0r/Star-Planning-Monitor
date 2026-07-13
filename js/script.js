@@ -1759,48 +1759,65 @@ function createFeedJobElement(jobId, jobData) {
     
     const duration = calculateJobDuration(jobData, jobId);
     
-    // AW status - use rawAWStatus if available, otherwise fallback
+    // AW status
     let awStatus = jobData.rawAWStatus || jobData.awStatus || jobData.status || 'Missing Data';
-    // If the status is empty or "Pending", treat as "Unknown"
     if (awStatus === '' || awStatus === 'Pending') {
         awStatus = 'Unknown';
     }
     
     const statusColor = statusColorMap[awStatus] || '#6c757d';
     const statusDisplay = statusDisplayMap[awStatus] || awStatus || 'Unknown';
-    const statusDisplayWithAW = `AW: ${statusDisplay}`;
     
-    // PL status as additional field (Planning Status from PL file)
+    // Format the status date - only date, no time
+    let statusDateFormatted = '';
+    if (jobData.statusDate) {
+        const dateObj = new Date(jobData.statusDate);
+        if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900) {
+            statusDateFormatted = formatDateOnly(dateObj);
+        } else {
+            statusDateFormatted = '01/01/1900';
+        }
+    } else {
+        statusDateFormatted = '01/01/1900';
+    }
+    
+    // PL status
     const plStatus = jobData.planningStatus || 'Unprinted';
-    // Use display name for PL status
     const plDisplayStatus = statusDisplayMap[plStatus] || plStatus || 'Unknown';
     const plStatusColor = statusColorMap[plStatus] || '#6c757d';
     
     const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
     
-    // Format the status date (from AW)
-    let statusDateFormatted = '';
-    if (jobData.statusDate) {
-        const dateObj = new Date(jobData.statusDate);
+    // Format estimated date - only date, no time
+    let estimatedDateFormatted = '';
+    let estimatedDisplayText = '';
+    if (jobData.estimatedDate) {
+        const dateObj = new Date(jobData.estimatedDate);
         if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() > 1900) {
-            statusDateFormatted = formatDateTime(dateObj);
-        } else {
-            statusDateFormatted = '01/01/1900 00:00';
+            estimatedDateFormatted = formatDateOnly(dateObj);
+            estimatedDisplayText = `Est: ${estimatedDateFormatted}`;
         }
-    } else {
-        statusDateFormatted = '01/01/1900 00:00';
     }
+    
+    // Check if estimated date should be shown
+    const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
     feedJob.innerHTML = `
         <div class="feed-item-content">
             <span class="feed-job-number">${jobNumber}</span>
             <span class="feed-job-name">${jobData.name || 'Unnamed'}</span>
-            <span class="feed-status" 
-                  data-raw-status="${awStatus}"
-                  style="background-color:${statusColor}20; color:${statusColor}; border:1px solid ${statusColor}40;">
-                ${statusDisplayWithAW}
-            </span>
-            <span class="feed-status-date">${statusDateFormatted}</span>
+            <div class="feed-status-wrapper">
+                <span class="feed-status" 
+                      data-raw-status="${awStatus}"
+                      style="background-color:${statusColor}20; color:${statusColor}; border:1px solid ${statusColor}40;">
+                    AW: ${statusDisplay} since: ${statusDateFormatted}
+                </span>
+                ${showEstimated && estimatedDisplayText ? 
+                    `<span class="feed-estimated-date" style="color:${statusColor}; background-color:${statusColor}15; border-color:${statusColor}40;">
+                        ${estimatedDisplayText}
+                    </span>` : ''
+                }
+            </div>
             <span class="feed-pl-status" 
                   data-raw-pl-status="${plStatus}"
                   style="background-color:${plStatusColor}20; color:${plStatusColor}; border:1px solid ${plStatusColor}40;">
