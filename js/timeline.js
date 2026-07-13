@@ -659,7 +659,7 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
     
     const jobElement = createJobElement(jobId, jobData);
     
-    // ✅ UPDATE MACHINE FIELD - Extract machine number from timeline ID
+    // ✅ UPDATE MACHINE FIELD
     const machineNumber = timelineId.replace('timeline-', '');
     jobData.machine = machineNumber;
     if (plDatabase[jobId]) {
@@ -667,17 +667,9 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
     }
     console.log(`✅ Machine field updated for job ${jobId} to: ${machineNumber}`);
     
-    // Also update the modal's machine select if it's open
-    const modal = document.getElementById('job-details-modal');
-    if (modal && modal.classList.contains('active')) {
-        const machineSelect = document.getElementById('modal-machine');
-        if (machineSelect) {
-            machineSelect.value = machineNumber;
-        }
-    }
-    
-    const feedJob = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
-    if (feedJob) feedJob.remove();
+    // ✅ DO NOT remove the feed item - keep it in the feed
+    // const feedJob = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
+    // if (feedJob) feedJob.remove();
     
     const duration = calculateJobDuration(jobData, jobId);
     const endTime = startTime + duration * 60000;
