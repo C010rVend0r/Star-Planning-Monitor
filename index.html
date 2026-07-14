@@ -191,41 +191,49 @@
                         </div>
                     </div>
                     <div class="modal-column">
-                        <div class="modal-section">
-                            <h3>Status Information</h3>
-                            <div class="modal-field">
-                                <label>AW Status</label>
-                                <select id="modal-aw-status" class="modal-input">
-                                    <option value="Missing Data">Missing Data</option>
-                                    <option value="Unknown">Unknown</option>
-                                    <option value="1. Under Job-Study">Under Job-Study</option>
-                                    <option value="2. Under QC Check">Under QC Check</option>
-                                    <option value="3. S.C Approval">S.C Approval</option>
-                                    <option value="4. Need S.C Approval">Need S.C Approval</option>
-                                    <option value="5. Working on Cromalin">Working on Cromalin</option>
-                                    <option value="6. Need Cromalin Approval">Need Cromalin Approval</option>
-                                    <option value="7. Cromalin Approval">Cromalin Approval</option>
-                                    <option value="8. Repro: Plate Making">Repro: Plate Making</option>
-                                    <option value="9. Plates are Ready">Plates are Ready</option>
-                                    <option value="Deleted">Deleted</option>
-                                    <option value="On Hold">On Hold</option>
-                                </select>
-                            </div>
-                            <div class="modal-field">
-                                <label>PL Status</label>
-                                <select id="modal-pl-status" class="modal-input">
-                                    <option value="Planned">Planned</option>
-                                    <option value="Unprinted">Unprinted</option>
-                                    <option value="Complete">Complete</option>
-                                    <option value="PL-Deleted">Deleted</option>
-                                    <option value="PL-Hold">Hold</option>
-                                </select>
-                            </div>
-                            <div class="modal-field">
-                                <label>Status SINCE</label>
-                                <input type="datetime-local" id="modal-status-date" class="modal-input">
-                            </div>
-                        </div>
+<!-- Status Information section - add estimated date -->
+<div class="modal-section">
+    <h3>Status Information</h3>
+    <div class="modal-field">
+        <label>AW Status</label>
+        <select id="modal-aw-status" class="modal-input">
+            <option value="Missing Data">Missing Data</option>
+            <option value="Unknown">Unknown</option>
+            <option value="1. Under Job-Study">Under Job-Study</option>
+            <option value="2. Under QC Check">Under QC Check</option>
+            <option value="3. S.C Approval">S.C Approval</option>
+            <option value="4. Need S.C Approval">Need S.C Approval</option>
+            <option value="5. Working on Cromalin">Working on Cromalin</option>
+            <option value="6. Need Cromalin Approval">Need Cromalin Approval</option>
+            <option value="7. Cromalin Approval">Cromalin Approval</option>
+            <option value="8. Repro: Plate Making">Repro: Plate Making</option>
+            <option value="9. Plates are Ready">Plates are Ready</option>
+            <option value="Deleted">Deleted</option>
+            <option value="On Hold">On Hold</option>
+        </select>
+    </div>
+    <div class="modal-field">
+        <label>PL Status</label>
+        <select id="modal-pl-status" class="modal-input">
+            <option value="Planned">Planned</option>
+            <option value="Unprinted">Unprinted</option>
+            <option value="Complete">Complete</option>
+            <option value="PL-Deleted">Deleted</option>
+            <option value="PL-Hold">Hold</option>
+        </select>
+    </div>
+    <div class="modal-field">
+        <label>Status SINCE</label>
+        <input type="datetime-local" id="modal-status-date" class="modal-input">
+    </div>
+    <!-- ADD ESTIMATED DATE FIELD HERE -->
+    <div class="modal-field" id="modal-estimated-date-container">
+        <label>Estimated Date</label>
+        <input type="datetime-local" id="modal-estimated-date" class="modal-input" readonly>
+        <div style="font-size:10px; color:#6c757d; margin-top:4px;">
+        </div>
+    </div>
+</div>
                         <div class="modal-section">
                             <h3>Timeline Information</h3>
                             <div class="modal-field">
