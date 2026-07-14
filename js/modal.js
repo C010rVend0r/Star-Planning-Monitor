@@ -161,18 +161,16 @@ function openJobDetailsModal(jobId) {
     const quantityInput = document.getElementById('modal-quantity');
     if (quantityInput) quantityInput.value = jobData.quantity || 0;
     
+    // Speed
     const currentSpeed = jobSpeeds[jobId] || jobData.machineSpeed || machineConfig.speed;
     const speedInput = document.getElementById('modal-speed');
     if (speedInput) speedInput.value = currentSpeed;
     
-    // ✅ FIX: Machine selection - check jobData.machine directly
+    // Machine
     const machineSelect = document.getElementById('modal-machine');
     if (machineSelect) {
-        // First try to get machine from jobData
-        let machineId = jobData.machine || '';
-        
-        // If job is on timeline, try to get machine from the timeline
-        if (!machineId && timelineJob) {
+        const machineId = jobData.machine || '';
+        if (timelineJob) {
             const timeline = timelineJob.closest('.timeline');
             if (timeline) {
                 const timelineContainer = timeline.closest('.timeline-container');
@@ -181,20 +179,15 @@ function openJobDetailsModal(jobId) {
                     if (machineElement) {
                         const machineNumber = machineElement.getAttribute('data-machine');
                         if (machineNumber && machineNumber !== '') {
-                            machineId = machineNumber;
+                            machineSelect.value = machineNumber;
                         }
                     }
                 }
             }
-        }
-        
-        // Set the select value
-        if (machineId) {
+        } else if (machineId) {
             machineSelect.value = machineId;
-            console.log(`✅ Modal machine set to: ${machineId}`);
         } else {
             machineSelect.value = '';
-            console.log(`ℹ️ No machine assigned for job ${jobId}`);
         }
     }
     
@@ -211,7 +204,7 @@ function openJobDetailsModal(jobId) {
     const statusDate = jobData.statusDate ? new Date(jobData.statusDate) : new Date();
     const dateInput = document.getElementById('modal-status-date');
     if (dateInput) {
-        if (!isNaN(statusDate.getTime())) {
+        if (!isNaN(statusDate.getTime()) && statusDate.getFullYear() > 1900) {
             const year = statusDate.getFullYear();
             const month = String(statusDate.getMonth() + 1).padStart(2, '0');
             const day = String(statusDate.getDate()).padStart(2, '0');
@@ -220,6 +213,35 @@ function openJobDetailsModal(jobId) {
             dateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
         } else {
             dateInput.value = '';
+        }
+    }
+    
+    // ============================================================
+    // ADD ESTIMATED DATE HANDLING
+    // ============================================================
+    const estimatedDateInput = document.getElementById('modal-estimated-date');
+    const estimatedContainer = document.getElementById('modal-estimated-date-container');
+    
+    if (estimatedDateInput && estimatedContainer) {
+        // Check if estimated date should be shown
+        const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
+        
+        if (showEstimated && jobData.estimatedDate) {
+            estimatedContainer.style.display = 'block';
+            const estimatedDate = new Date(jobData.estimatedDate);
+            if (!isNaN(estimatedDate.getTime()) && estimatedDate.getFullYear() > 1900) {
+                const year = estimatedDate.getFullYear();
+                const month = String(estimatedDate.getMonth() + 1).padStart(2, '0');
+                const day = String(estimatedDate.getDate()).padStart(2, '0');
+                const hours = String(estimatedDate.getHours()).padStart(2, '0');
+                const minutes = String(estimatedDate.getMinutes()).padStart(2, '0');
+                estimatedDateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+            } else {
+                estimatedDateInput.value = '';
+            }
+        } else {
+            estimatedContainer.style.display = 'none';
+            estimatedDateInput.value = '';
         }
     }
     
@@ -261,6 +283,7 @@ function openJobDetailsModal(jobId) {
     
     // Additional PL data
     const plData = plDatabase[jobId] || {};
+    
     const fields = {
         'modal-new-plat': plData.newPlat || jobData.newPlat || '',
         'modal-material-availability': plData.materialAvailability || jobData.materialAvailability || '',
@@ -272,6 +295,7 @@ function openJobDetailsModal(jobId) {
         'modal-material-type': plData.materialType || jobData.materialType || '',
         'modal-downtime': plData.downtime || jobData.downtime || 0
     };
+    
     Object.keys(fields).forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = fields[id];
@@ -281,6 +305,7 @@ function openJobDetailsModal(jobId) {
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
     
+    // Highlight the selected job
     if (timelineJob) {
         timelineJob.classList.add('job-selected');
     } else if (feedItem) {
