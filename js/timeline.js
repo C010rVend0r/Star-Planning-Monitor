@@ -60,10 +60,6 @@ let draggedElement = null;
 // TIMELINE RULER - WITH OFFSET ADJUSTMENT
 // ============================================================
 
-// ============================================================
-// TIMELINE RULER - FIXED: Uses clientWidth as reference
-// ============================================================
-
 function generateTimelineRuler(timeline) {
     const container = timeline.closest('.timeline-container');
     if (!container) return;
@@ -77,10 +73,10 @@ function generateTimelineRuler(timeline) {
     const jobs = timeline.querySelectorAll('.job');
     if (jobs.length === 0) return;
     
-    // CRITICAL FIX: Use container.clientWidth as the reference
-    // This stays constant regardless of how many jobs are in the container
+    // Get container dimensions
     const containerWidth = container.clientWidth || 800;
-    const totalWidth = containerWidth;  // Fixed reference width
+    const timelineScrollWidth = timeline.scrollWidth || timeline.offsetWidth || 800;
+    const totalWidth = Math.max(timelineScrollWidth, containerWidth);
     
     // Get the container's bounding rect for reference
     const containerRect = container.getBoundingClientRect();
@@ -129,7 +125,7 @@ function generateTimelineRuler(timeline) {
         </span>
     `;
     
-    // Create ruler with the same width as the container
+    // Create ruler with the same width as the timeline
     const ruler = document.createElement('div');
     ruler.className = 'timeline-ruler';
     ruler.style.cssText = `
@@ -223,7 +219,7 @@ function generateTimelineRuler(timeline) {
         ruler.appendChild(endTick);
     });
     
-    // Add boundary lines between jobs (using raw position without offset)
+    // Add boundary lines between jobs
     for (let i = 1; i < jobPositions.length; i++) {
         const pos = jobPositions[i];
         const jobElement = document.querySelector(`.job[data-job-id="${pos.id}"]`);
@@ -263,7 +259,7 @@ function generateTimelineRuler(timeline) {
 }
 
 // ============================================================
-// NOW INDICATOR - FIXED: Uses clientWidth as reference
+// NOW INDICATOR - PIXEL-BASED (matches ruler exactly)
 // ============================================================
 
 // Store the last calculated position for each timeline
@@ -288,9 +284,11 @@ function updateNowIndicatorPosition(timeline) {
         return;
     }
     
-    // CRITICAL FIX: Use container.clientWidth as the reference
+    // Get container dimensions
     const containerRect = container.getBoundingClientRect();
-    const totalWidth = container.clientWidth || 800;
+    const containerWidth = container.clientWidth || 800;
+    const timelineScrollWidth = timeline.scrollWidth || timeline.offsetWidth || 800;
+    const totalWidth = Math.max(timelineScrollWidth, containerWidth);
     
     let positionPercentage = 5;
     let foundPosition = false;
@@ -310,7 +308,8 @@ function updateNowIndicatorPosition(timeline) {
     const firstStart = jobSchedule[firstJobId].startTime;
     const lastEnd = jobSchedule[lastJobId].endTime;
     
-    // Use RAW pixel position WITHOUT the shift offset (matches boundary lines)
+    // CRITICAL FIX: Use RAW position WITHOUT RULER_SHIFT_OFFSET
+    // This matches the boundary lines which are correctly positioned
     for (let i = 0; i < jobs.length; i++) {
         const job = jobs[i];
         const jobId = job.getAttribute('data-job-id');
@@ -432,7 +431,7 @@ function updateNowIndicatorPosition(timeline) {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
         display: block !important;
     `;
-    label.textContent = `NOW>> ${timeString}`;
+    label.textContent = timeString;
 }
 
 function updateAllNowIndicators() {
