@@ -1,4 +1,4 @@
-// timeline.js - COMPLETE WORKING VERSION
+// timeline.js - COMPLETE REWRITE
 // ============================================================
 // TIMELINE & MACHINE FUNCTIONS
 // ============================================================
@@ -51,14 +51,11 @@ let selectedJob = null;
 let dragOverElement = null;
 let draggedElement = null;
 const nowIndicatorPositions = {};
-
-// ============================================================
-// TIMELINE RULER - COMPLETE WORKING VERSION
-// ============================================================
-// timeline.js - Add these updated functions
-
-// Add a cache to track timeline state
 const timelineStateCache = {};
+
+// ============================================================
+// TIMELINE RULER
+// ============================================================
 
 function generateTimelineRuler(timeline) {
     const container = timeline.closest('.timeline-container');
@@ -73,13 +70,11 @@ function generateTimelineRuler(timeline) {
     const jobs = timeline.querySelectorAll('.job');
     if (jobs.length === 0) return;
     
-    // Use the larger of scrollWidth or offsetWidth for consistency
     const totalWidth = Math.max(timeline.scrollWidth, timeline.offsetWidth, 800);
-    
     const containerRect = container.getBoundingClientRect();
     const scrollLeft = container.scrollLeft || 0;
     
-    // Get job positions with more precise calculation
+    // Get job positions
     let jobPositions = [];
     jobs.forEach(job => {
         const jobId = job.getAttribute('data-job-id');
@@ -101,16 +96,13 @@ function generateTimelineRuler(timeline) {
     
     if (jobPositions.length === 0) return;
     
-    // Create a hash of the current state to detect changes
+    // Check if state has changed
     const stateHash = jobPositions.map(p => 
         `${p.id}|${p.leftPx.toFixed(2)}|${p.rightPx.toFixed(2)}|${p.isPrinted}`
     ).join(';');
     
-    // Check if state has changed - if not, don't regenerate the ruler
     const timelineId = timeline.id;
     if (timelineStateCache[timelineId] === stateHash) {
-        // State hasn't changed, but we might need to restore the ruler
-        // Just return without regenerating
         return;
     }
     timelineStateCache[timelineId] = stateHash;
@@ -137,19 +129,7 @@ function generateTimelineRuler(timeline) {
     // Ruler
     const ruler = document.createElement('div');
     ruler.className = 'timeline-ruler';
-    ruler.style.cssText = `
-        position: relative;
-        width: ${totalWidth}px;
-        height: 34px;
-        background: rgb(175, 178, 185);
-        border-bottom: 2px solid #dee2e6;
-        border-radius: 4px 4px 0 0;
-        margin-bottom: 2px;
-        flex-shrink: 0;
-        overflow: visible;
-        z-index: 2;
-        box-sizing: border-box;
-    `;
+    ruler.style.width = totalWidth + 'px';
     
     // Add ticks for each job
     jobPositions.forEach((pos, index) => {
@@ -170,54 +150,20 @@ function generateTimelineRuler(timeline) {
         // Start tick
         const startTick = document.createElement('div');
         startTick.className = 'ruler-tick start-tick';
-        startTick.style.cssText = `
-            position: absolute;
-            top: 0;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-start;
-            padding-top: 2px;
-            white-space: nowrap;
-            z-index: 3;
-            pointer-events: none;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            left: ${startPercent}%;
-            border-left: 2px solid #777777;
-        `;
+        startTick.style.left = startPercent + '%';
         startTick.innerHTML = `
-            <span class="tick-time" style="font-size:9px; font-weight:700; color:#2c3e50; background:rgb(175, 178, 185); padding:0 4px; border-radius:2px; line-height:1.3; margin-top:2px;">
-                ▶ ${startTimeStr}
-            </span>
-            ${showStartDate ? `<span class="tick-date" style="font-size:7px; color:#6c757d; background:rgb(175, 178, 185); padding:0 4px; border-radius:2px; line-height:1.2;">${startDateStr}</span>` : ''}
+            <span class="tick-time start-time">▶ ${startTimeStr}</span>
+            ${showStartDate ? `<span class="tick-date">${startDateStr}</span>` : ''}
         `;
         ruler.appendChild(startTick);
         
         // End tick
         const endTick = document.createElement('div');
         endTick.className = 'ruler-tick end-tick';
-        endTick.style.cssText = `
-            position: absolute;
-            top: 0;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-start;
-            padding-top: 2px;
-            white-space: nowrap;
-            z-index: 3;
-            pointer-events: none;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            left: ${endPercent}%;
-            border-left: 2px solid #777777;
-        `;
+        endTick.style.left = endPercent + '%';
         endTick.innerHTML = `
-            <span class="tick-time" style="font-size:9px; font-weight:700; color:#e74c3c; background:rgb(175, 178, 185); padding:0 4px; border-radius:2px; line-height:1.3; margin-top:2px;">
-                ■ ${endTimeStr}
-            </span>
-            ${showEndDate ? `<span class="tick-date" style="font-size:7px; color:#6c757d; background:rgb(175, 178, 185); padding:0 4px; border-radius:2px; line-height:1.2;">${endDateStr}</span>` : ''}
+            <span class="tick-time end-time">■ ${endTimeStr}</span>
+            ${showEndDate ? `<span class="tick-date">${endDateStr}</span>` : ''}
         `;
         ruler.appendChild(endTick);
     });
@@ -227,16 +173,8 @@ function generateTimelineRuler(timeline) {
         const pos = jobPositions[i];
         const boundaryPercent = Math.max(0, Math.min(100, (pos.leftPx / totalWidth) * 100));
         const boundaryLine = document.createElement('div');
-        boundaryLine.style.cssText = `
-            position: absolute;
-            top: 0;
-            height: 100%;
-            width: 1px;
-            background: rgba(0, 0, 0, 0.08);
-            pointer-events: none;
-            z-index: 1;
-            left: ${boundaryPercent}%;
-        `;
+        boundaryLine.className = 'ruler-boundary-line';
+        boundaryLine.style.left = boundaryPercent + '%';
         ruler.appendChild(boundaryLine);
     }
     
@@ -244,7 +182,10 @@ function generateTimelineRuler(timeline) {
     container.prepend(dateHeader);
 }
 
-// Update the now indicator to use the cached state
+// ============================================================
+// NOW INDICATOR
+// ============================================================
+
 function updateNowIndicatorPosition(timeline) {
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -275,7 +216,6 @@ function updateNowIndicatorPosition(timeline) {
     
     marker.style.display = 'block';
     
-    // Get container dimensions
     const containerRect = container.getBoundingClientRect();
     const scrollLeft = container.scrollLeft || 0;
     const totalWidth = Math.max(ruler.offsetWidth, timeline.scrollWidth, 800);
@@ -313,7 +253,6 @@ function updateNowIndicatorPosition(timeline) {
         const posPx = leftPx + (currentJobProgress * jobWidth);
         positionPercentage = (posPx / totalWidth) * 100;
     } else {
-        // Find position in gaps or edges
         const firstJob = jobs[0];
         const lastJob = jobs[jobs.length - 1];
         const firstJobId = firstJob.getAttribute('data-job-id');
@@ -393,18 +332,7 @@ function updateNowIndicatorPosition(timeline) {
     };
     
     // Position marker
-    marker.style.cssText = `
-        position: absolute !important;
-        top: 0 !important;
-        height: 100% !important;
-        width: 2px !important;
-        background: #e74c3c !important;
-        z-index: 10 !important;
-        pointer-events: none !important;
-        display: block !important;
-        left: ${positionPercentage}% !important;
-        transition: left 0.3s ease !important;
-    `;
+    marker.style.left = positionPercentage + '%';
     
     // Label
     let label = marker.querySelector('.ruler-now-label');
@@ -413,29 +341,7 @@ function updateNowIndicatorPosition(timeline) {
         label.className = 'ruler-now-label';
         marker.appendChild(label);
     }
-    
-    label.style.cssText = `
-        position: absolute !important;
-        bottom: 100% !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        font-size: 8px !important;
-        font-weight: 700 !important;
-        color: #e74c3c !important;
-        background: rgba(255,255,255,0.95) !important;
-        padding: 2px 8px !important;
-        border-radius: 4px !important;
-        white-space: nowrap !important;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.15) !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-        display: block !important;
-        margin-bottom: 2px !important;
-        border: 1px solid rgba(231, 76, 60, 0.3) !important;
-        pointer-events: none !important;
-        background: #fff !important;
-        z-index: 11 !important;
-    `;
-    label.textContent = `🔴 NOW >> ${timeString}`;
+    label.textContent = '🔴 ' + timeString;
 }
 
 // ============================================================
@@ -500,66 +406,6 @@ function setupResizeObserver() {
 }
 
 // ============================================================
-// DEBUG FUNCTIONS
-// ============================================================
-
-function debugNowIndicators() {
-    console.log('=== Now Indicator Debug ===');
-    for (const [timelineId, data] of Object.entries(nowIndicatorPositions)) {
-        console.log(`${timelineId}: ${data.position.toFixed(2)}% (${data.time}) - ${data.jobs} jobs, found: ${data.foundPosition}`);
-    }
-    console.log('============================');
-}
-
-function debugRulerAlignment(timelineId) {
-    const timeline = document.getElementById(timelineId);
-    if (!timeline) {
-        console.log(`Timeline ${timelineId} not found`);
-        return;
-    }
-    
-    const container = timeline.closest('.timeline-container');
-    if (!container) {
-        console.log('Container not found');
-        return;
-    }
-    
-    const ruler = container.querySelector('.timeline-ruler');
-    if (!ruler) {
-        console.log('Ruler not found');
-        return;
-    }
-    
-    const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
-    const containerRect = container.getBoundingClientRect();
-    const scrollLeft = container.scrollLeft || 0;
-    const totalWidth = Math.max(ruler.offsetWidth, timeline.scrollWidth, 800);
-    
-    console.log(`=== ${timelineId} Alignment Debug ===`);
-    console.log(`totalWidth: ${totalWidth}`);
-    console.log(`ruler width: ${ruler.offsetWidth}`);
-    console.log(`timeline.scrollWidth: ${timeline.scrollWidth}`);
-    console.log(`scrollLeft: ${scrollLeft}`);
-    console.log(`jobs: ${jobs.length}`);
-    
-    jobs.forEach((job, index) => {
-        const jobRect = job.getBoundingClientRect();
-        const leftPx = jobRect.left - containerRect.left + scrollLeft;
-        const rightPx = jobRect.right - containerRect.left + scrollLeft;
-        const leftPercent = (leftPx / totalWidth) * 100;
-        const rightPercent = (rightPx / totalWidth) * 100;
-        console.log(`  Job ${index}: left=${leftPercent.toFixed(2)}%, right=${rightPercent.toFixed(2)}%`);
-    });
-    
-    const marker = ruler.querySelector('.ruler-now-marker');
-    if (marker) {
-        const markerLeft = parseFloat(marker.style.left);
-        console.log(`Marker position: ${markerLeft}%`);
-    }
-    console.log('===============================');
-}
-
-// ============================================================
 // SCALE TIMELINE
 // ============================================================
 
@@ -573,6 +419,7 @@ function scaleTimeline(timelineId) {
         if (container) {
             container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
         }
+        delete timelineStateCache[timelineId];
         return;
     }
     
@@ -605,6 +452,7 @@ function scaleTimeline(timelineId) {
             width = Math.max(80, Math.min(250, width));
             applyJobStyle(job, width);
         });
+        delete timelineStateCache[timelineId];
         return;
     }
     
@@ -617,9 +465,14 @@ function scaleTimeline(timelineId) {
     pixelsPerMinute = pixelsPerMinute * currentZoomLevel;
     pixelsPerMinute = Math.max(0.5, Math.min(20, pixelsPerMinute));
     
+    let widthsChanged = false;
     jobDurations.forEach(({ job, duration }) => {
         let width = duration * pixelsPerMinute;
         width = Math.max(MIN_JOB_WIDTH * 0.8, Math.min(MAX_JOB_WIDTH * 1.2, width));
+        const currentWidth = parseFloat(job.style.width) || 0;
+        if (Math.abs(currentWidth - width) > 5) {
+            widthsChanged = true;
+        }
         applyJobStyle(job, width);
     });
     
@@ -628,6 +481,10 @@ function scaleTimeline(timelineId) {
         width = Math.max(80, Math.min(250, width));
         applyJobStyle(job, width);
     });
+    
+    if (widthsChanged) {
+        delete timelineStateCache[timelineId];
+    }
     
     let hasSchedule = false;
     let firstStartTime = Infinity;
@@ -647,7 +504,16 @@ function scaleTimeline(timelineId) {
     });
     
     if (hasSchedule && firstStartTime !== Infinity && lastEndTime > 0) {
-        generateTimelineRuler(timeline);
+        const container = timeline.closest('.timeline-container');
+        if (container) {
+            const existingRuler = container.querySelector('.timeline-ruler');
+            if (!existingRuler || widthsChanged) {
+                if (existingRuler) existingRuler.remove();
+                const existingHeader = container.querySelector('.timeline-date-header');
+                if (existingHeader) existingHeader.remove();
+                generateTimelineRuler(timeline);
+            }
+        }
     }
 }
 
@@ -658,10 +524,10 @@ function applyJobStyle(job, jobWidth) {
     const maxWidth = 600;
     jobWidth = Math.max(minWidth, Math.min(maxWidth, jobWidth));
     
-    job.style.width = `${jobWidth}px`;
+    job.style.width = jobWidth + 'px';
     job.style.flexShrink = '0';
-    job.style.minWidth = `${minWidth}px`;
-    job.style.maxWidth = `${maxWidth}px`;
+    job.style.minWidth = minWidth + 'px';
+    job.style.maxWidth = maxWidth + 'px';
     
     const fontSize = Math.max(9, Math.min(14, 11 * currentZoomLevel));
     const nameFontSize = Math.max(9, Math.min(13, 10 * currentZoomLevel));
@@ -669,35 +535,35 @@ function applyJobStyle(job, jobWidth) {
     
     const jobName = job.querySelector('.job-name');
     if (jobName) {
-        jobName.style.fontSize = `${nameFontSize}px`;
+        jobName.style.fontSize = nameFontSize + 'px';
         const badge = jobName.querySelector('.job-number-badge');
         if (badge) {
-            badge.style.fontSize = `${badgeFontSize}px`;
+            badge.style.fontSize = badgeFontSize + 'px';
             badge.style.fontWeight = '700';
         }
     }
     
     const jobDetails = job.querySelector('.job-details');
-    if (jobDetails) jobDetails.style.fontSize = `${fontSize * 0.85}px`;
+    if (jobDetails) jobDetails.style.fontSize = (fontSize * 0.85) + 'px';
     
     const jobDurationEl = job.querySelector('.job-duration');
-    if (jobDurationEl) jobDurationEl.style.fontSize = `${fontSize * 1.1}px`;
+    if (jobDurationEl) jobDurationEl.style.fontSize = (fontSize * 1.1) + 'px';
     
     const jobBreakdown = job.querySelector('.job-breakdown');
-    if (jobBreakdown) jobBreakdown.style.fontSize = `${fontSize * 0.75}px`;
+    if (jobBreakdown) jobBreakdown.style.fontSize = (fontSize * 0.75) + 'px';
     
     const jobTime = job.querySelector('.job-time');
-    if (jobTime) jobTime.style.fontSize = `${fontSize * 0.75}px`;
+    if (jobTime) jobTime.style.fontSize = (fontSize * 0.75) + 'px';
     
     const padding = Math.max(6, Math.min(12, 8 * currentZoomLevel));
-    job.style.padding = `${padding}px ${padding * 1.2}px`;
+    job.style.padding = padding + 'px ' + (padding * 1.2) + 'px';
 }
 
 // ============================================================
-// TIMELINE SCHEDULING
+// TIMELINE SCHEDULING - PRESERVES EXISTING SCHEDULES
 // ============================================================
 
-function rescheduleTimelineJobs(timelineId) {
+function rescheduleTimelineJobs(timelineId, preserveExisting = true) {
     const timeline = document.getElementById(timelineId);
     if (!timeline) return;
     
@@ -706,31 +572,115 @@ function rescheduleTimelineJobs(timelineId) {
     
     if (activeJobs.length === 0) return;
     
-    let currentTime = new Date().getTime();
+    let startTime = null;
+    let startIndex = 0;
     
-    if (printedJobs.length > 0) {
-        const lastPrinted = printedJobs[printedJobs.length - 1];
-        const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-        if (jobSchedule[lastPrintedId]) {
-            currentTime = Math.max(currentTime, jobSchedule[lastPrintedId].endTime);
+    if (preserveExisting) {
+        const activeJobsArray = Array.from(activeJobs);
+        
+        // Find the first job without a schedule or with a broken schedule
+        for (let i = 0; i < activeJobsArray.length; i++) {
+            const job = activeJobsArray[i];
+            const jobId = job.getAttribute('data-job-id');
+            if (!jobSchedule[jobId] || jobSchedule[jobId].startTime === undefined) {
+                startIndex = i;
+                if (i > 0) {
+                    const prevJob = activeJobsArray[i - 1];
+                    const prevJobId = prevJob.getAttribute('data-job-id');
+                    if (jobSchedule[prevJobId]) {
+                        startTime = jobSchedule[prevJobId].endTime;
+                    }
+                }
+                break;
+            }
+        }
+        
+        // If all jobs have schedules, verify consistency
+        if (startTime === null) {
+            let consistent = true;
+            let expectedTime = null;
+            
+            for (let i = 0; i < activeJobsArray.length; i++) {
+                const job = activeJobsArray[i];
+                const jobId = job.getAttribute('data-job-id');
+                const schedule = jobSchedule[jobId];
+                
+                if (!schedule) {
+                    consistent = false;
+                    startIndex = i;
+                    if (i > 0) {
+                        const prevJob = activeJobsArray[i - 1];
+                        const prevJobId = prevJob.getAttribute('data-job-id');
+                        if (jobSchedule[prevJobId]) {
+                            startTime = jobSchedule[prevJobId].endTime;
+                        }
+                    }
+                    break;
+                }
+                
+                if (expectedTime === null) {
+                    expectedTime = schedule.startTime;
+                } else if (Math.abs(schedule.startTime - expectedTime) > 1000) {
+                    consistent = false;
+                    startIndex = i;
+                    startTime = expectedTime;
+                    break;
+                }
+                
+                const duration = calculateJobDuration(jobDatabase[jobId], jobId) * 60000;
+                expectedTime += duration;
+            }
+            
+            if (consistent) {
+                return;
+            }
         }
     }
     
-    activeJobs.forEach(job => {
+    if (startTime === null) {
+        if (printedJobs.length > 0) {
+            const lastPrinted = printedJobs[printedJobs.length - 1];
+            const lastPrintedId = lastPrinted.getAttribute('data-job-id');
+            if (jobSchedule[lastPrintedId]) {
+                startTime = jobSchedule[lastPrintedId].endTime;
+            } else {
+                startTime = new Date().getTime();
+            }
+        } else {
+            startTime = new Date().getTime();
+        }
+        startIndex = 0;
+    }
+    
+    const activeJobsArray = Array.from(activeJobs);
+    let currentTime = startTime;
+    
+    for (let i = startIndex; i < activeJobsArray.length; i++) {
+        const job = activeJobsArray[i];
         const jobId = job.getAttribute('data-job-id');
         const jobData = jobDatabase[jobId];
-        if (!jobData) return;
+        if (!jobData) continue;
+        
         const duration = calculateJobDuration(jobData, jobId) * 60000;
         
+        let jobStartTime = currentTime;
+        if (preserveExisting && jobSchedule[jobId] && i === startIndex) {
+            const originalStart = jobSchedule[jobId].startTime;
+            if (originalStart >= currentTime) {
+                jobStartTime = originalStart;
+                currentTime = jobStartTime;
+            }
+        }
+        
         jobSchedule[jobId] = {
-            startTime: currentTime,
-            endTime: currentTime + duration,
+            startTime: jobStartTime,
+            endTime: jobStartTime + duration,
             timelineId: timelineId,
             isPrinted: false
         };
         
-        currentTime += duration;
-    });
+        currentTime = jobStartTime + duration;
+    }
 }
 
 function calculateJobDuration(jobData, jobId = null) {
@@ -797,7 +747,7 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
         }
     }
     
-    rescheduleTimelineJobs(timelineId);
+    delete timelineStateCache[timelineId];
     scaleTimeline(timelineId);
     updateMachineStatus(timeline.closest('.machine'));
     updateJobTimeDisplay(jobId);
@@ -888,7 +838,8 @@ function handleFeedToTimeline(jobId, timeline, e) {
     }
     
     addJobToTimelineWithSchedule(jobId, timeline.id, newStartTime, insertBeforeElement);
-    rescheduleTimelineJobs(timeline.id);
+    rescheduleTimelineJobs(timeline.id, true);
+    
     updateAllJobColors();
     updateStatistics();
     applySmartZoom();
@@ -915,6 +866,7 @@ function handleJobReorder(jobId, targetTimeline, e) {
         }
     }
     
+    const jobScheduleData = jobSchedule[jobId];
     draggedElement.remove();
     
     const machineNumber = targetTimeline.id.replace('timeline-', '');
@@ -936,12 +888,16 @@ function handleJobReorder(jobId, targetTimeline, e) {
         }
     }
     
-    if (jobSchedule[jobId]) {
-        jobSchedule[jobId].timelineId = targetTimeline.id;
+    if (jobScheduleData) {
+        jobScheduleData.timelineId = targetTimeline.id;
+        jobSchedule[jobId] = jobScheduleData;
     }
     
-    rescheduleTimelineJobs(oldTimeline.id);
-    rescheduleTimelineJobs(targetTimeline.id);
+    delete timelineStateCache[oldTimeline.id];
+    delete timelineStateCache[targetTimeline.id];
+    
+    rescheduleTimelineJobs(oldTimeline.id, true);
+    rescheduleTimelineJobs(targetTimeline.id, true);
     
     scaleTimeline(oldTimeline.id);
     scaleTimeline(targetTimeline.id);
@@ -973,9 +929,14 @@ function returnJobToFeed(jobElement) {
     if (productionFeedList) {
         productionFeedList.appendChild(feedJob);
         const timeline = jobElement.parentElement;
+        const timelineId = timeline.id;
         jobElement.remove();
         delete jobSchedule[jobId];
-        scaleTimeline(timeline.id);
+        delete timelineStateCache[timelineId];
+        
+        // Reschedule remaining jobs
+        rescheduleTimelineJobs(timelineId, true);
+        scaleTimeline(timelineId);
         updateMachineStatus(timeline.closest('.machine'));
         applyFilter();
         updateStatistics();
@@ -992,6 +953,7 @@ function refreshAllTimelines() {
         if (container) {
             container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
         }
+        delete timelineStateCache[timeline.id];
         sortPrintedJobs(timeline);
         scaleTimeline(timeline.id);
     });
@@ -1014,6 +976,14 @@ function sortPrintedJobs(timeline) {
     
     printedJobs.forEach(job => timeline.appendChild(job));
     activeJobs.forEach(job => timeline.appendChild(job));
+}
+
+function clearTimelineCache(timelineId) {
+    if (timelineId) {
+        delete timelineStateCache[timelineId];
+    } else {
+        Object.keys(timelineStateCache).forEach(key => delete timelineStateCache[key]);
+    }
 }
 
 // ============================================================
@@ -1371,6 +1341,64 @@ function updateAllJobColors() {
 }
 
 // ============================================================
+// COMPLETED JOBS HANDLING
+// ============================================================
+
+function updateCompletedJobs() {
+    const now = new Date().getTime();
+    let hasChanges = false;
+    
+    document.querySelectorAll('.timeline').forEach(timeline => {
+        const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+        
+        jobs.forEach(job => {
+            const jobId = job.getAttribute('data-job-id');
+            if (jobSchedule[jobId] && jobSchedule[jobId].endTime <= now) {
+                job.classList.add('job-printed');
+                jobSchedule[jobId].isPrinted = true;
+                jobDatabase[jobId].status = 'Complete';
+                jobDatabase[jobId].planningStatus = 'Complete';
+                job.setAttribute('draggable', 'false');
+                
+                const statusBadge = job.querySelector('.job-status-badge');
+                if (statusBadge) {
+                    statusBadge.textContent = 'Complete';
+                    statusBadge.style.color = '#95a5a6';
+                }
+                hasChanges = true;
+            }
+        });
+        
+        const printedJobs = timeline.querySelectorAll('.job.job-printed');
+        if (printedJobs.length > 5) {
+            const toRemove = Array.from(printedJobs).slice(5);
+            toRemove.forEach(job => {
+                const jobId = job.getAttribute('data-job-id');
+                delete jobSchedule[jobId];
+                job.remove();
+                hasChanges = true;
+            });
+        }
+        
+        if (hasChanges) {
+            sortPrintedJobs(timeline);
+            delete timelineStateCache[timeline.id];
+            const container = timeline.closest('.timeline-container');
+            if (container) {
+                container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+                generateTimelineRuler(timeline);
+            }
+            updateMachineStatus(timeline.closest('.machine'));
+        }
+    });
+    
+    if (hasChanges) {
+        updateStatistics();
+        updateAllNowIndicators();
+    }
+}
+
+// ============================================================
 // ZOOM FUNCTIONALITY
 // ============================================================
 
@@ -1437,6 +1465,7 @@ function smartResetZoom() {
 
 function applySmartZoom() {
     document.querySelectorAll('.timeline').forEach(timeline => {
+        delete timelineStateCache[timeline.id];
         scaleTimeline(timeline.id);
     });
     updateAllNowIndicators();
@@ -1446,7 +1475,7 @@ function applySmartZoom() {
 function updateZoomDisplay() {
     const zoomLevelDisplay = document.getElementById('zoom-level');
     if (zoomLevelDisplay) {
-        zoomLevelDisplay.textContent = `${Math.round(currentZoomLevel * 100)}%`;
+        zoomLevelDisplay.textContent = Math.round(currentZoomLevel * 100) + '%';
     }
 }
 
@@ -1457,7 +1486,7 @@ function showZoomIndicator(message) {
         indicator.className = 'zoom-indicator';
         document.querySelector('.machines-section').appendChild(indicator);
     }
-    indicator.textContent = `${message}: ${Math.round(currentZoomLevel * 100)}%`;
+    indicator.textContent = message + ': ' + Math.round(currentZoomLevel * 100) + '%';
     indicator.classList.add('visible');
     if (window.zoomIndicatorTimeout) {
         clearTimeout(window.zoomIndicatorTimeout);
@@ -1468,177 +1497,63 @@ function showZoomIndicator(message) {
 }
 
 // ============================================================
-// COMPLETED JOBS HANDLING
+// DEBUG FUNCTIONS
 // ============================================================
 
-// Update updateCompletedJobs to not regenerate the ruler unnecessarily
-function updateCompletedJobs() {
-    const now = new Date().getTime();
-    let hasChanges = false;
-    
-    document.querySelectorAll('.timeline').forEach(timeline => {
-        const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
-        
-        jobs.forEach(job => {
-            const jobId = job.getAttribute('data-job-id');
-            if (jobSchedule[jobId] && jobSchedule[jobId].endTime <= now) {
-                job.classList.add('job-printed');
-                jobSchedule[jobId].isPrinted = true;
-                jobDatabase[jobId].status = 'Complete';
-                jobDatabase[jobId].planningStatus = 'Complete';
-                job.setAttribute('draggable', 'false');
-                
-                const statusBadge = job.querySelector('.job-status-badge');
-                if (statusBadge) {
-                    statusBadge.textContent = 'Complete';
-                    statusBadge.style.color = '#95a5a6';
-                }
-                hasChanges = true;
-            }
-        });
-        
-        const printedJobs = timeline.querySelectorAll('.job.job-printed');
-        if (printedJobs.length > 5) {
-            const toRemove = Array.from(printedJobs).slice(5);
-            toRemove.forEach(job => {
-                const jobId = job.getAttribute('data-job-id');
-                delete jobSchedule[jobId];
-                job.remove();
-                hasChanges = true;
-            });
-        }
-        
-        if (hasChanges) {
-            sortPrintedJobs(timeline);
-            // Only regenerate ruler if there were changes
-            const container = timeline.closest('.timeline-container');
-            if (container) {
-                container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
-                generateTimelineRuler(timeline);
-            }
-            updateMachineStatus(timeline.closest('.machine'));
-        }
-    });
-    
-    if (hasChanges) {
-        updateStatistics();
-        updateAllNowIndicators();
+function debugNowIndicators() {
+    console.log('=== Now Indicator Debug ===');
+    for (const [timelineId, data] of Object.entries(nowIndicatorPositions)) {
+        console.log(timelineId + ': ' + data.position.toFixed(2) + '% (' + data.time + ') - ' + data.jobs + ' jobs, found: ' + data.foundPosition);
     }
+    console.log('============================');
 }
 
-// Update scaleTimeline to check cache before regenerating
-function scaleTimeline(timelineId) {
+function debugRulerAlignment(timelineId) {
     const timeline = document.getElementById(timelineId);
-    if (!timeline) return;
-    
-    const jobs = timeline.querySelectorAll('.job');
-    if (jobs.length === 0) {
-        const container = timeline.closest('.timeline-container');
-        if (container) {
-            container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
-            // Clear cache for this timeline
-            delete timelineStateCache[timelineId];
-        }
+    if (!timeline) {
+        console.log('Timeline ' + timelineId + ' not found');
         return;
     }
     
-    const printedJobs = [];
-    const activeJobs = [];
-    
-    jobs.forEach(job => {
-        if (job.classList.contains('job-printed')) {
-            printedJobs.push(job);
-        } else {
-            activeJobs.push(job);
-        }
-    });
-    
-    const jobDurations = [];
-    let minDuration = Infinity;
-    let maxDuration = 0;
-    
-    activeJobs.forEach(job => {
-        const jobId = job.getAttribute('data-job-id');
-        const duration = calculateJobDuration(jobDatabase[jobId], jobId);
-        jobDurations.push({ job, duration, jobId });
-        if (duration > maxDuration) maxDuration = duration;
-        if (duration < minDuration) minDuration = duration;
-    });
-    
-    if (activeJobs.length === 0) {
-        printedJobs.forEach(job => {
-            let width = 100 * currentZoomLevel;
-            width = Math.max(80, Math.min(250, width));
-            applyJobStyle(job, width);
-        });
-        // Clear cache since job layout changed
-        delete timelineStateCache[timelineId];
+    const container = timeline.closest('.timeline-container');
+    if (!container) {
+        console.log('Container not found');
         return;
     }
     
-    const MIN_JOB_WIDTH = 80;
-    const MAX_JOB_WIDTH = 600;
-    const MIN_DURATION_FOR_SCALING = 1;
-    
-    const effectiveMinDuration = Math.max(minDuration, MIN_DURATION_FOR_SCALING);
-    let pixelsPerMinute = MIN_JOB_WIDTH / effectiveMinDuration;
-    pixelsPerMinute = pixelsPerMinute * currentZoomLevel;
-    pixelsPerMinute = Math.max(0.5, Math.min(20, pixelsPerMinute));
-    
-    // Check if any job widths changed significantly
-    let widthsChanged = false;
-    jobDurations.forEach(({ job, duration }) => {
-        let width = duration * pixelsPerMinute;
-        width = Math.max(MIN_JOB_WIDTH * 0.8, Math.min(MAX_JOB_WIDTH * 1.2, width));
-        const currentWidth = parseFloat(job.style.width) || 0;
-        if (Math.abs(currentWidth - width) > 5) {
-            widthsChanged = true;
-        }
-        applyJobStyle(job, width);
-    });
-    
-    printedJobs.forEach(job => {
-        let width = 100 * currentZoomLevel;
-        width = Math.max(80, Math.min(250, width));
-        applyJobStyle(job, width);
-    });
-    
-    // Only regenerate ruler if widths actually changed
-    if (widthsChanged) {
-        delete timelineStateCache[timelineId];
+    const ruler = container.querySelector('.timeline-ruler');
+    if (!ruler) {
+        console.log('Ruler not found');
+        return;
     }
     
-    let hasSchedule = false;
-    let firstStartTime = Infinity;
-    let lastEndTime = 0;
+    const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+    const containerRect = container.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft || 0;
+    const totalWidth = Math.max(ruler.offsetWidth, timeline.scrollWidth, 800);
     
-    activeJobs.forEach(job => {
-        const jobId = job.getAttribute('data-job-id');
-        if (jobSchedule[jobId]) {
-            hasSchedule = true;
-            if (jobSchedule[jobId].startTime < firstStartTime) {
-                firstStartTime = jobSchedule[jobId].startTime;
-            }
-            if (jobSchedule[jobId].endTime > lastEndTime) {
-                lastEndTime = jobSchedule[jobId].endTime;
-            }
-        }
+    console.log('=== ' + timelineId + ' Alignment Debug ===');
+    console.log('totalWidth: ' + totalWidth);
+    console.log('ruler width: ' + ruler.offsetWidth);
+    console.log('timeline.scrollWidth: ' + timeline.scrollWidth);
+    console.log('scrollLeft: ' + scrollLeft);
+    console.log('jobs: ' + jobs.length);
+    
+    jobs.forEach((job, index) => {
+        const jobRect = job.getBoundingClientRect();
+        const leftPx = jobRect.left - containerRect.left + scrollLeft;
+        const rightPx = jobRect.right - containerRect.left + scrollLeft;
+        const leftPercent = (leftPx / totalWidth) * 100;
+        const rightPercent = (rightPx / totalWidth) * 100;
+        console.log('  Job ' + index + ': left=' + leftPercent.toFixed(2) + '%, right=' + rightPercent.toFixed(2) + '%');
     });
     
-    if (hasSchedule && firstStartTime !== Infinity && lastEndTime > 0) {
-        // Check if we already have a ruler and if it's valid
-        const container = timeline.closest('.timeline-container');
-        if (container) {
-            const existingRuler = container.querySelector('.timeline-ruler');
-            if (!existingRuler || widthsChanged) {
-                // Remove existing ruler if it's outdated
-                if (existingRuler) existingRuler.remove();
-                const existingHeader = container.querySelector('.timeline-date-header');
-                if (existingHeader) existingHeader.remove();
-                generateTimelineRuler(timeline);
-            }
-        }
+    const marker = ruler.querySelector('.ruler-now-marker');
+    if (marker) {
+        const markerLeft = parseFloat(marker.style.left);
+        console.log('Marker position: ' + markerLeft + '%');
     }
+    console.log('===============================');
 }
 
 // ============================================================
@@ -1667,5 +1582,7 @@ window.setupResizeObserver = setupResizeObserver;
 window.debugNowIndicators = debugNowIndicators;
 window.debugRulerAlignment = debugRulerAlignment;
 window.nowIndicatorPositions = nowIndicatorPositions;
+window.clearTimelineCache = clearTimelineCache;
+window.timelineStateCache = timelineStateCache;
 
-console.log('✅ timeline.js loaded - Now indicator will track job positions accurately');
+console.log('✅ timeline.js loaded - Complete rewrite with schedule preservation');
