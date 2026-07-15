@@ -1,305 +1,267 @@
-// script-upload.js
+// script-upload.js - Add status tracking system
 // ============================================================
-// EXCEL UPLOAD & EXPORT FUNCTIONS
-// ============================================================
-
-// script-upload.js
-// ============================================================
-// EXCEL UPLOAD & EXPORT FUNCTIONS - MOBILE FRIENDLY
+// UPLOAD STATUS TRACKING
 // ============================================================
 
-function setupExcelUploads() {
-    // AW Upload
-    const uploadBtnAW = document.getElementById('upload-excel-aw');
-    const fileInputAW = document.getElementById('file-input-aw');
-    
-    if (uploadBtnAW && fileInputAW) {
-        // For mobile: ensure the file input accepts Excel files
-        fileInputAW.setAttribute('accept', '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel');
-        
-        uploadBtnAW.addEventListener('click', function(e) {
-            e.preventDefault();
-            console.log('AW Upload button clicked');
-            // For mobile, we need to trigger the file input
-            fileInputAW.click();
-        });
-        
-        // Also handle touch events for mobile
-        uploadBtnAW.addEventListener('touchstart', function(e) {
-            // Prevent double-firing on mobile
-            if (!this._touched) {
-                this._touched = true;
-                setTimeout(() => { this._touched = false; }, 300);
-            }
-        });
-        
-        fileInputAW.addEventListener('change', function(e) {
-            const file = this.files[0];
-            if (file) {
-                console.log('AW file selected:', file.name);
-                // Check file extension
-                const validExtensions = ['.xlsx', '.xls'];
-                const fileExt = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-                
-                if (validExtensions.includes(fileExt) || file.name.toLowerCase().includes('aw')) {
-                    handleAWUpload(file);
-                } else {
-                    alert('Please upload an Excel file (.xlsx or .xls) named "AW"');
-                }
-            }
-            // Reset the input so the same file can be selected again
-            this.value = '';
-        });
+// Upload status tracking
+const uploadStatus = {
+    mahmoud: { lastUpdated: null, status: 'pending' },
+    raed: { lastUpdated: null, status: 'pending' },
+    rabia: { lastUpdated: null, status: 'pending' },
+    qasem: { lastUpdated: null, status: 'pending' }
+};
+
+const UPLOAD_VALIDITY_MINUTES = 1; // 1 minute for testing, change to 1440 for 24 hours
+let statusCheckInterval = null;
+
+// Sheet detection patterns
+const SHEET_PATTERNS = {
+    mahmoud: ['mahmoud'],
+    raed: ['raed'],
+    rabia: ['rabia'],
+    fullData: ['full data', 'fulldata', 'full']
+};
+
+// ============================================================
+// CALCULATE ESTIMATED DATE - Excluding Fridays
+// ============================================================
+function calculateEstimatedDate(startDate, daysToAdd) {
+    if (!startDate || isNaN(startDate.getTime())) {
+        return null;
     }
     
-    // PL Upload
-    const uploadBtnPL = document.getElementById('upload-excel-pl');
-    const fileInputPL = document.getElementById('file-input-pl');
+    const result = new Date(startDate);
+    let daysAdded = 0;
     
-    if (uploadBtnPL && fileInputPL) {
-        // For mobile: ensure the file input accepts Excel files
-        fileInputPL.setAttribute('accept', '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel');
-        
-        uploadBtnPL.addEventListener('click', function(e) {
-            e.preventDefault();
-            console.log('PL Upload button clicked');
-            fileInputPL.click();
-        });
-        
-        // Also handle touch events for mobile
-        uploadBtnPL.addEventListener('touchstart', function(e) {
-            if (!this._touched) {
-                this._touched = true;
-                setTimeout(() => { this._touched = false; }, 300);
-            }
-        });
-        
-        fileInputPL.addEventListener('change', function(e) {
-            const file = this.files[0];
-            if (file) {
-                console.log('PL file selected:', file.name);
-                const validExtensions = ['.xlsx', '.xls'];
-                const fileExt = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-                
-                if (validExtensions.includes(fileExt) || file.name.toLowerCase().includes('ci planning shared')) {
-                    handlePLUpload(file);
-                } else {
-                    alert('Please upload an Excel file (.xlsx or .xls) named "CI Planning Shared"');
-                }
-            }
-            this.value = '';
-        });
+    while (daysAdded < daysToAdd) {
+        result.setDate(result.getDate() + 1);
+        // Check if it's Friday (getDay() returns 5 for Friday)
+        if (result.getDay() !== 5) {
+            daysAdded++;
+        }
+        // If it's Friday, skip it (don't count it)
     }
+    
+    return result;
 }
 
 // ============================================================
-// MOBILE-FRIENDLY FILE INPUT FIX
+// DETECT UPLOADER
 // ============================================================
 
-// For iOS Safari, we need to handle the file input differently
-function setupMobileFileInputs() {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function detectUploader(sheetNames) {
+    const results = {
+        mahmoud: false,
+        raed: false,
+        rabia: false,
+        fullData: false
+    };
     
-    if (isIOS) {
-        console.log('iOS detected - applying mobile file input fixes');
-        
-        // For iOS, we need to ensure the file input is triggered properly
-        const fileInputs = document.querySelectorAll('input[type="file"]');
-        fileInputs.forEach(input => {
-            // Remove the display:none and make it invisible but clickable
-            input.style.cssText = `
-                position: absolute;
-                width: 0;
-                height: 0;
-                opacity: 0;
-                overflow: hidden;
-                z-index: -1;
-            `;
-            
-            // Add a label that triggers the file input
-            const parent = input.parentElement;
-            if (parent) {
-                const label = document.createElement('label');
-                label.setAttribute('for', input.id);
-                label.style.cssText = `
-                    display: none;
-                `;
-                parent.appendChild(label);
-            }
-        });
+    const lowerSheetNames = sheetNames.map(name => name.toLowerCase().trim());
+    
+    // Check for Full Data first
+    if (lowerSheetNames.some(name => 
+        SHEET_PATTERNS.fullData.some(pattern => name.includes(pattern))
+    )) {
+        results.fullData = true;
+        results.mahmoud = true;
+        results.raed = true;
+        results.rabia = true;
+        return results;
     }
+    
+    // Check individual sheets
+    if (lowerSheetNames.some(name => 
+        SHEET_PATTERNS.mahmoud.some(pattern => name.includes(pattern))
+    )) {
+        results.mahmoud = true;
+    }
+    
+    if (lowerSheetNames.some(name => 
+        SHEET_PATTERNS.raed.some(pattern => name.includes(pattern))
+    )) {
+        results.raed = true;
+    }
+    
+    if (lowerSheetNames.some(name => 
+        SHEET_PATTERNS.rabia.some(pattern => name.includes(pattern))
+    )) {
+        results.rabia = true;
+    }
+    
+    return results;
 }
 
-// Call this on DOM ready
-document.addEventListener('DOMContentLoaded', function() {
-    setupMobileFileInputs();
-});
+function updateUploadStatus(uploader) {
+    const now = new Date();
+    uploadStatus[uploader].lastUpdated = now;
+    uploadStatus[uploader].status = 'updated';
+    updateStatusIndicators();
+    console.log(`✅ ${uploader} upload status updated at ${now.toLocaleTimeString()}`);
+}
 
-// ============================================================
-// HANDLE AW UPLOAD
-// ============================================================
-
-function handleAWUpload(file) {
-    console.log('Uploading AW Excel file:', file.name);
+function checkUploadValidity() {
+    const now = new Date();
+    let allUpdated = true;
     
-    // Check if it's actually an Excel file
-    const validTypes = [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel',
-        'application/vnd.ms-excel.sheet.macroEnabled.12'
+    for (const [key, value] of Object.entries(uploadStatus)) {
+        if (value.lastUpdated === null) {
+            value.status = 'pending';
+            allUpdated = false;
+        } else {
+            const diffMinutes = (now - value.lastUpdated) / (1000 * 60);
+            if (diffMinutes > UPLOAD_VALIDITY_MINUTES) {
+                value.status = 'expired';
+                allUpdated = false;
+            } else {
+                value.status = 'updated';
+            }
+        }
+    }
+    
+    updateStatusIndicators(allUpdated);
+    return allUpdated;
+}
+
+// ============================================================
+// UPDATE STATUS INDICATORS - FIXED
+// ============================================================
+// ============================================================
+// UPDATE STATUS INDICATORS - SIMPLIFIED
+// ============================================================
+
+function updateStatusIndicators(allUpdated = null) {
+    // Find the upload status container
+    let statusContainer = document.getElementById('upload-status-container');
+    
+    // If it doesn't exist, create it after the header
+    if (!statusContainer) {
+        statusContainer = document.createElement('div');
+        statusContainer.id = 'upload-status-container';
+        const header = document.querySelector('.header');
+        if (header) {
+            header.parentNode.insertBefore(statusContainer, header.nextSibling);
+        } else {
+            document.body.prepend(statusContainer);
+        }
+    }
+    
+    const statusConfigs = [
+        { key: 'mahmoud', label: 'Mahmoud' },
+        { key: 'raed', label: 'Raed' },
+        { key: 'rabia', label: 'Rabia' },
+        { key: 'qasem', label: 'Qasem' }
     ];
     
-    // Some mobile browsers don't set the type correctly, so check extension too
-    const fileExt = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-    const validExtensions = ['.xlsx', '.xls'];
+    // Check if all are updated
+    const isAllUpdated = statusConfigs.every(c => uploadStatus[c.key].status === 'updated');
     
-    if (!validExtensions.includes(fileExt) && !validTypes.includes(file.type)) {
-        // Try to proceed anyway - it might still be an Excel file
-        console.warn('File type not recognized as Excel, but trying to process:', file.type);
+    // If all updated, show celebration message
+    if (isAllUpdated) {
+        statusContainer.innerHTML = `
+            <div class="upload-status-item status-all-updated">
+                <span>✅ All Data are updated !!</span>
+            </div>
+        `;
+        return;
     }
     
-    showUploadProgress('Reading AW file...', 10);
+    // Otherwise, show only the people who need to update
+    let statusHTML = '';
+    let pendingCount = 0;
+    let pendingNames = [];
     
-    const reader = new FileReader();
-    
-    reader.onload = function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
+    for (const config of statusConfigs) {
+        const status = uploadStatus[config.key];
+        
+        // Only show if NOT updated (pending or expired)
+        if (status.status !== 'updated') {
+            let statusClass = 'status-pending';
+            let statusText = '⏳ Pending';
+            let icon = '🔴';
             
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+            if (status.status === 'expired') {
+                statusText = '⚠️ Please update!';
+                statusClass = 'status-expired';
+            } else {
+                statusText = '⏳ Waiting...';
+                statusClass = 'status-pending';
+            }
             
-            console.log('AW data rows:', jsonData.length);
+            pendingCount++;
+            pendingNames.push(config.label);
             
-            showUploadProgress('Processing AW data...', 50);
-            
-            const rows = jsonData.slice(3);
-            let awJobsFound = 0;
-            
-            rows.forEach((row, index) => {
-                if (!row || row.length < 10) {
-                    console.log(`Row ${index + 4} has insufficient data, skipping`);
-                    return;
-                }
-                
-                const jobNumber = String(row[5] || '').trim();
-                const status = String(row[8] || '').trim();
-                
-                if (!jobNumber) {
-                    console.log(`Row ${index + 4} has no job number, skipping`);
-                    return;
-                }
-                
-                console.log(`Processing AW job: ${jobNumber}, status: "${status}"`);
-                
-                let statusDate = null;
-                
-                const statusDateMap = {
-                    '1. Under Job-Study': { index: 32, label: 'AG' },
-                    '2. Under QC Check': { index: 34, label: 'AI' },
-                    '3. S.C Approval': { index: 36, label: 'AK' },
-                    '4. Need S.C Approval': { index: 38, label: 'AM' },
-                    '5. Working on Cromalin': { index: 40, label: 'AO' },
-                    '6. Need Cromalin Approval': { index: 42, label: 'AQ' },
-                    '7. Cromalin Approval': { index: 44, label: 'AS' },
-                    '8. Repro: Plate Making': { index: 46, label: 'AU' },
-                    '9. Plates are Ready': { index: 48, label: 'AW' }
-                };
-                
-                if (status && statusDateMap[status]) {
-                    const dateInfo = statusDateMap[status];
-                    const dateValue = row[dateInfo.index];
-                    
-                    if (dateValue !== undefined && dateValue !== null && dateValue !== '') {
-                        if (typeof dateValue === 'number' && dateValue > 0) {
-                            const excelEpoch = new Date(1899, 11, 30);
-                            const jsDate = new Date(excelEpoch.getTime() + dateValue * 86400000);
-                            if (!isNaN(jsDate.getTime())) {
-                                statusDate = jsDate;
-                            }
-                        } else if (typeof dateValue === 'string') {
-                            const parsed = new Date(dateValue);
-                            if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) {
-                                statusDate = parsed;
-                            }
-                        }
-                    }
-                }
-                
-                if (!statusDate) {
-                    statusDate = new Date(1900, 0, 1);
-                }
-                
-                let rawStatus = status || 'Unknown';
-                
-                // Calculate estimated date based on status
-                let estimatedDate = null;
-                if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
-                    estimatedDate = calculateEstimatedDate(statusDate, 2);
-                }
-                
-                awData[jobNumber] = {
-                    status: rawStatus,
-                    rawStatus: rawStatus,
-                    statusDate: statusDate.toISOString(),
-                    estimatedDate: estimatedDate ? estimatedDate.toISOString() : null,
-                    isFromAW: true
-                };
-                
-                let jobId = findJobIdByNumber(jobNumber);
-                if (jobId) {
-                    console.log(`Found matching job in PL: ${jobId}`);
-                    if (jobDatabase[jobId]) {
-                        jobDatabase[jobId].awStatus = rawStatus;
-                        jobDatabase[jobId].status = rawStatus;
-                        jobDatabase[jobId].statusDate = statusDate.toISOString();
-                        jobDatabase[jobId].rawAWStatus = rawStatus;
-                        jobDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
-                        
-                        if (plDatabase[jobId]) {
-                            plDatabase[jobId].prepressStatus = rawStatus;
-                            plDatabase[jobId].statusDate = statusDate.toISOString();
-                            plDatabase[jobId].rawAWStatus = rawStatus;
-                            plDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
-                        }
-                        
-                        awJobsFound++;
-                    }
-                } else {
-                    console.log(`No matching job found for ${jobNumber} in PL database`);
-                }
-            });
-            
-            populateProductionFeed();
-            applyFilter();
-            updateFilterCounts(); 
-            
-            showUploadProgress(`AW upload complete: ${awJobsFound} jobs updated`, 100);
-            
-            setTimeout(() => {
-                hideUploadProgress();
-                updateStatistics();
-                console.log('AW upload completed successfully');
-            }, 1500);
-            
-        } catch (error) {
-            console.error('Error processing AW file:', error);
-            showUploadProgress('Error processing AW file', 100);
-            setTimeout(() => hideUploadProgress(), 3000);
-            alert('Error reading AW Excel file. Please check the file format.\nError: ' + error.message);
+            statusHTML += `
+                <div class="upload-status-item ${statusClass}">
+                    <span class="status-warning-icon">${icon}</span>
+                    <span class="status-label">${config.label}:</span>
+                    <span class="status-text">${statusText}</span>
+                </div>
+            `;
         }
-    };
+    }
     
-    reader.onerror = function() {
-        console.error('Error reading AW file');
-        showUploadProgress('Error reading file', 100);
-        setTimeout(() => hideUploadProgress(), 3000);
-        alert('Error reading file. Please try again.');
-    };
+    // Add overall summary
+    const summaryHTML = `
+        <div class="upload-status-item status-some-pending">
+            <span>⚠️</span>
+            <span><strong>${pendingCount}</strong> update${pendingCount > 1 ? 's' : ''} pending: <strong>${pendingNames.join(', ')}</strong></span>
+        </div>
+    `;
     
-    reader.readAsArrayBuffer(file);
+    statusContainer.innerHTML = statusHTML + summaryHTML;
+}
+// ============================================================
+// UPDATE REAL TIME INDICATOR
+// ============================================================
+
+function updateRealTimeIndicator() {
+    // Find the stat card with "Real Time" label
+    const statCards = document.querySelectorAll('.stat-card');
+    let realTimeCard = null;
+    
+    for (const card of statCards) {
+        const label = card.querySelector('.stat-label');
+        if (label && label.textContent.trim() === 'Real Time') {
+            realTimeCard = card;
+            break;
+        }
+    }
+    
+    if (!realTimeCard) {
+        // Try fallback: find by index (third stat card)
+        if (statCards.length >= 3) {
+            realTimeCard = statCards[2];
+        } else {
+            console.warn('Real Time stat card not found');
+            return;
+        }
+    }
+    
+    const statValue = realTimeCard.querySelector('.stat-value');
+    if (!statValue) return;
+    
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    statValue.textContent = timeStr;
+}
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
+function findJobIdByNumber(jobNumber) {
+    if (!jobNumber) return null;
+    
+    const cleanNumber = jobNumber.trim();
+    if (!cleanNumber) return null;
+    
+    for (const [id, data] of Object.entries(jobDatabase)) {
+        if (data.jobNumber && data.jobNumber.trim() === cleanNumber) {
+            return id;
+        }
+    }
+    return null;
 }
 
 function showUploadProgress(message, percentage) {
@@ -328,12 +290,93 @@ function hideUploadProgress() {
     }
 }
 
-function findJobIdByNumber(jobNumber) {
-    for (const [id, data] of Object.entries(jobDatabase)) {
-        if (data.jobNumber === jobNumber) return id;
+// ============================================================
+// EXCEL UPLOAD SETUP
+// ============================================================
+
+function setupExcelUploads() {
+    console.log('Setting up Excel uploads...');
+    
+    // AW Upload
+    const uploadBtnAW = document.getElementById('upload-excel-aw');
+    const fileInputAW = document.getElementById('file-input-aw');
+    
+    if (uploadBtnAW && fileInputAW) {
+        console.log('AW upload elements found');
+        
+        // Remove any existing listeners by cloning
+        const newBtn = uploadBtnAW.cloneNode(true);
+        uploadBtnAW.parentNode.replaceChild(newBtn, uploadBtnAW);
+        
+        newBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('AW Upload button clicked - triggering file input');
+            fileInputAW.click();
+        });
+        
+        fileInputAW.addEventListener('change', function(e) {
+            const file = this.files[0];
+            if (file) {
+                console.log('AW file selected:', file.name);
+                handleAWUpload(file);
+            } else {
+                console.log('No AW file selected');
+            }
+            this.value = '';
+        });
+        
+        document.addEventListener('dragover', function(e) {
+            e.preventDefault();
+        });
+        
+        document.addEventListener('drop', function(e) {
+            e.preventDefault();
+        });
+    } else {
+        console.warn('AW upload elements not found:', 
+            'button:', !!uploadBtnAW, 
+            'input:', !!fileInputAW);
     }
-    return null;
+    
+    // PL Upload
+    const uploadBtnPL = document.getElementById('upload-excel-pl');
+    const fileInputPL = document.getElementById('file-input-pl');
+    
+    if (uploadBtnPL && fileInputPL) {
+        console.log('PL upload elements found');
+        
+        const newBtn = uploadBtnPL.cloneNode(true);
+        uploadBtnPL.parentNode.replaceChild(newBtn, uploadBtnPL);
+        
+        newBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('PL Upload button clicked - triggering file input');
+            fileInputPL.click();
+        });
+        
+        fileInputPL.addEventListener('change', function(e) {
+            const file = this.files[0];
+            if (file) {
+                console.log('PL file selected:', file.name);
+                handlePLUpload(file);
+            } else {
+                console.log('No PL file selected');
+            }
+            this.value = '';
+        });
+    } else {
+        console.warn('PL upload elements not found:', 
+            'button:', !!uploadBtnPL, 
+            'input:', !!fileInputPL);
+    }
 }
+
+// ============================================================
+// HANDLE AW UPLOAD
+// ============================================================
+// upload.js - Replace handleAWUpload with this version
 
 function handleAWUpload(file) {
     console.log('Uploading AW Excel file:', file.name);
@@ -347,19 +390,27 @@ function handleAWUpload(file) {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
             
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+            const sheetNames = workbook.SheetNames;
+            console.log('AW Sheets found:', sheetNames);
             
-            console.log('AW data rows:', jsonData.length);
+            const detected = detectUploader(sheetNames);
+            console.log('Detected uploaders:', detected);
+            
+            const firstSheet = workbook.Sheets[sheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
             
             showUploadProgress('Processing AW data...', 50);
             
             const rows = jsonData.slice(3);
             let awJobsFound = 0;
+            let awJobsCreated = 0;
+            let awJobsSkipped = 0;
+            
+            // CRITICAL: Save current filter state
+            const savedFilterStatuses = new Set(filterStatuses);
             
             rows.forEach((row, index) => {
                 if (!row || row.length < 10) {
-                    console.log(`Row ${index + 4} has insufficient data, skipping`);
                     return;
                 }
                 
@@ -367,7 +418,6 @@ function handleAWUpload(file) {
                 const status = String(row[8] || '').trim();
                 
                 if (!jobNumber) {
-                    console.log(`Row ${index + 4} has no job number, skipping`);
                     return;
                 }
                 
@@ -413,12 +463,12 @@ function handleAWUpload(file) {
                 
                 let rawStatus = status || 'Unknown';
                 
-                // Calculate estimated date based on status
                 let estimatedDate = null;
                 if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
                     estimatedDate = calculateEstimatedDate(statusDate, 2);
                 }
                 
+                // Store AW data
                 awData[jobNumber] = {
                     status: rawStatus,
                     rawStatus: rawStatus,
@@ -427,40 +477,78 @@ function handleAWUpload(file) {
                     isFromAW: true
                 };
                 
+                // Find existing job by job number
                 let jobId = findJobIdByNumber(jobNumber);
+                
                 if (jobId) {
-                    console.log(`Found matching job in PL: ${jobId}`);
+                    // Job exists - ONLY update AW status, DO NOT change PL status
+                    console.log(`Found matching job: ${jobId} - updating AW status only`);
                     if (jobDatabase[jobId]) {
                         jobDatabase[jobId].awStatus = rawStatus;
                         jobDatabase[jobId].status = rawStatus;
                         jobDatabase[jobId].statusDate = statusDate.toISOString();
                         jobDatabase[jobId].rawAWStatus = rawStatus;
                         jobDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
+                        // DO NOT change planningStatus - it stays as is from PL
                         
                         if (plDatabase[jobId]) {
                             plDatabase[jobId].prepressStatus = rawStatus;
                             plDatabase[jobId].statusDate = statusDate.toISOString();
                             plDatabase[jobId].rawAWStatus = rawStatus;
                             plDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
+                            // DO NOT change planningStatus - it stays as is from PL
                         }
                         
                         awJobsFound++;
                     }
                 } else {
-                    console.log(`No matching job found for ${jobNumber} in PL database`);
+                    // Job does NOT exist in PL - SKIP creating it
+                    // AW should only update existing jobs, not create new ones
+                    console.log(`No matching job found for ${jobNumber} - skipping AW-only creation`);
+                    awJobsSkipped++;
                 }
             });
             
-            populateProductionFeed();
-            applyFilter();
-            updateFilterCounts(); 
+            console.log(`AW upload results: ${awJobsFound} updated, ${awJobsCreated} created, ${awJobsSkipped} skipped`);
+            console.log(`Total jobs in database: ${Object.keys(jobDatabase).length}`);
             
-            showUploadProgress(`AW upload complete: ${awJobsFound} jobs updated`, 100);
+            // RESTORE filter state
+            filterStatuses = savedFilterStatuses;
+            
+            // Refresh the feed to show updated AW statuses
+            populateProductionFeed();
+            
+            // Apply filters
+            applyFilter();
+            updateFilterCounts();
+            updateStatistics();
+            updateFilterBadge();
+            syncFilterCheckboxes();
+            
+            if (detected.fullData) {
+                updateUploadStatus('mahmoud');
+                updateUploadStatus('raed');
+                updateUploadStatus('rabia');
+                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped (no PL match)`, 'success');
+            } else {
+                if (detected.mahmoud) {
+                    updateUploadStatus('mahmoud');
+                }
+                if (detected.raed) {
+                    updateUploadStatus('raed');
+                }
+                if (detected.rabia) {
+                    updateUploadStatus('rabia');
+                }
+                showNotification(`✅ AW data uploaded - ${awJobsFound} jobs updated`, 'success');
+            }
+            
+            showUploadProgress(`AW upload complete: ${awJobsFound} updated, ${awJobsSkipped} skipped`, 100);
             
             setTimeout(() => {
                 hideUploadProgress();
-                updateStatistics();
                 console.log('AW upload completed successfully');
+                console.log('Filter statuses after AW upload:', Array.from(filterStatuses));
             }, 1500);
             
         } catch (error) {
@@ -480,6 +568,12 @@ function handleAWUpload(file) {
     
     reader.readAsArrayBuffer(file);
 }
+
+// ============================================================
+// HANDLE PL UPLOAD
+// ============================================================
+// upload.js - Replace handlePLUpload with this version
+
 function handlePLUpload(file) {
     console.log('Uploading PL Excel file:', file.name);
     
@@ -492,7 +586,6 @@ function handlePLUpload(file) {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
             
-            // Get the PLAN-WEEK sheet
             let sheet = null;
             
             for (const name of workbook.SheetNames) {
@@ -517,24 +610,13 @@ function handlePLUpload(file) {
             
             const rows = jsonData.slice(1);
             let jobsAdded = 0;
-            let jobsUpdated = 0;
-            let jobsOnTimeline = 0;
+            let jobsWithAW = 0;
             
-            // IMPORTANT: Clear existing jobDatabase and plDatabase before processing
-            // BUT preserve awData for status lookup
-            // We'll clear and rebuild from PL data
+            // SAVE existing AW data before clearing
+            const savedAWData = { ...awData };
+            console.log('Saved AW data keys:', Object.keys(savedAWData));
             
-            // Store existing job IDs that are on timelines
-            const existingTimelineJobs = {};
-            document.querySelectorAll('.job').forEach(job => {
-                const jobId = job.getAttribute('data-job-id');
-                if (jobId && !job.classList.contains('job-printed')) {
-                    existingTimelineJobs[jobId] = job;
-                }
-            });
-            
-            // Clear jobDatabase but keep awData
-            const oldJobDatabase = { ...jobDatabase };
+            // Clear existing databases but keep AW data reference
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
             
@@ -575,25 +657,26 @@ function handlePLUpload(file) {
                 
                 console.log(`Processing PL job: ${jobNumber}, planningStatus: "${planningStatus}"`);
                 
-                // Check if job exists in AW data for status
+                // Check if we have AW data for this job (from savedAWData)
                 let awStatus = 'Unknown';
                 let statusDate = new Date(1900, 0, 1);
                 let estimatedDate = null;
                 
-                if (awData[jobNumber]) {
-                    awStatus = awData[jobNumber].status || 'Unknown';
-                    if (awData[jobNumber].statusDate) {
-                        const parsedDate = new Date(awData[jobNumber].statusDate);
+                if (savedAWData[jobNumber]) {
+                    awStatus = savedAWData[jobNumber].status || 'Unknown';
+                    if (savedAWData[jobNumber].statusDate) {
+                        const parsedDate = new Date(savedAWData[jobNumber].statusDate);
                         if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900) {
                             statusDate = parsedDate;
                         }
                     }
-                    if (awData[jobNumber].estimatedDate) {
-                        const parsedDate = new Date(awData[jobNumber].estimatedDate);
+                    if (savedAWData[jobNumber].estimatedDate) {
+                        const parsedDate = new Date(savedAWData[jobNumber].estimatedDate);
                         if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900) {
                             estimatedDate = parsedDate;
                         }
                     }
+                    jobsWithAW++;
                     console.log(`Found AW data for ${jobNumber}: ${awStatus}`);
                 } else {
                     console.log(`No AW data found for ${jobNumber} - setting AW status to "Unknown"`);
@@ -605,18 +688,19 @@ function handlePLUpload(file) {
                 const isDeleted = planningStatus === 'Deleted' || planningStatus === 'PL-Deleted';
                 const isHold = planningStatus === 'Hold' || planningStatus === 'PL-Hold';
                 
-                // Generate a unique job ID
                 const jobId = 'job-' + (Object.keys(jobDatabase).length + 1);
                 
-                // Determine effective status
                 let effectiveStatus = awStatus;
                 if (isComplete) effectiveStatus = 'Complete';
                 else if (isPlanned) effectiveStatus = 'Planned';
                 else if (isUnprinted) effectiveStatus = 'Unprinted';
                 else if (isDeleted) effectiveStatus = 'PL-Deleted';
                 else if (isHold) effectiveStatus = 'PL-Hold';
+                // If no AW status, keep the PL status as the main status
+                if (awStatus === 'Unknown' && !isComplete && !isPlanned && !isUnprinted && !isDeleted && !isHold) {
+                    effectiveStatus = planningStatus || 'Unprinted';
+                }
                 
-                // Create job in database
                 jobDatabase[jobId] = {
                     name: jobName || 'Unnamed Job',
                     jobNumber: jobNumber,
@@ -633,7 +717,6 @@ function handlePLUpload(file) {
                     isUnprinted: isUnprinted,
                     isDeleted: isDeleted,
                     isHold: isHold,
-                    // Store PL data
                     newPlat: newPlat,
                     materialAvailability: materialAvailability,
                     delivered: delivered,
@@ -655,7 +738,6 @@ function handlePLUpload(file) {
                     printingDuration: printingDuration
                 };
                 
-                // Store PL data separately for export
                 plDatabase[jobId] = {
                     jobNumber: jobNumber,
                     jobName: jobName,
@@ -693,21 +775,19 @@ function handlePLUpload(file) {
                 jobsAdded++;
             });
             
-            console.log(`Added ${jobsAdded} jobs to database`);
+            console.log(`Added ${jobsAdded} jobs to database, ${jobsWithAW} have AW data`);
             
-            // Populate the production feed FIRST (before adding to timelines)
+            // Populate the feed
             populateProductionFeed();
             
-            // Now add jobs to timelines based on PL status
+            // Add jobs to timeline if they're Planned
             let timelineJobsAdded = 0;
             
-            // Process each job and add to timeline if Planned and has machine
             for (const [jobId, jobData] of Object.entries(jobDatabase)) {
                 const machine = jobData.machine;
                 const planningStatus = jobData.planningStatus;
                 const isPlanned = planningStatus === 'Planned';
                 
-                // Check if job already exists on timeline
                 const existingJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
                 
                 if (machine && machineIdMap[machine] && isPlanned && !existingJob) {
@@ -716,15 +796,12 @@ function handlePLUpload(file) {
                     const timeline = document.getElementById(timelineId);
                     
                     if (timeline) {
-                        // Add job to timeline
                         const now = new Date().getTime();
-                        // Don't remove from feed - it will be handled by addJobToTimelineWithSchedule
                         addJobToTimelineWithSchedule(jobId, timelineId, now);
                         timelineJobsAdded++;
                         console.log(`Added ${jobId} to ${timelineId} (Planned status)`);
                     }
                 } else if (existingJob && !isPlanned && !existingJob.classList.contains('job-printed')) {
-                    // Job is on timeline but not Planned - remove it
                     returnJobToFeed(existingJob);
                     console.log(`Removed ${jobId} from timeline (status: ${planningStatus})`);
                 }
@@ -740,6 +817,9 @@ function handlePLUpload(file) {
             updateAllJobColors();
             updateAllJobTimes();
             updateAllNowIndicators();
+            
+            updateUploadStatus('qasem');
+            showNotification(`✅ PL uploaded: ${jobsAdded} jobs (${jobsWithAW} with AW data)`, 'success');
             
             showUploadProgress(`PL upload complete: ${jobsAdded} jobs, ${timelineJobsAdded} on timeline`, 100);
             
@@ -768,102 +848,44 @@ function handlePLUpload(file) {
     
     reader.readAsArrayBuffer(file);
 }
+
 // ============================================================
-// CALCULATE ESTIMATED DATE - Excluding Fridays
+// START STATUS MONITORING
 // ============================================================
-function calculateEstimatedDate(startDate, daysToAdd) {
-    if (!startDate || isNaN(startDate.getTime())) {
-        return null;
+
+function startUploadStatusMonitoring() {
+    // Initial check - update indicators immediately
+    checkUploadValidity();
+    
+    // Also force an immediate update of the indicators
+    setTimeout(function() {
+        updateStatusIndicators();
+    }, 100);
+    
+    // Check every 30 seconds
+    if (statusCheckInterval) {
+        clearInterval(statusCheckInterval);
     }
+    statusCheckInterval = setInterval(checkUploadValidity, 30000);
     
-    const result = new Date(startDate);
-    let daysAdded = 0;
-    
-    while (daysAdded < daysToAdd) {
-        result.setDate(result.getDate() + 1);
-        // Check if it's Friday (getDay() returns 5 for Friday)
-        if (result.getDay() !== 5) {
-            daysAdded++;
-        }
-        // If it's Friday, skip it (don't count it)
-    }
-    
-    return result;
+    console.log(`📊 Upload status monitoring started (validity: ${UPLOAD_VALIDITY_MINUTES} minute${UPLOAD_VALIDITY_MINUTES > 1 ? 's' : ''})`);
 }
 
-function exportPLData() {
-    console.log('Exporting PL data...');
-    showUploadProgress('Generating export...', 30);
-    
-    try {
-        const headers = [
-            'Job Number', 'Job Name', 'NEW PLAT', 'Prepress status', 'Material Availability2',
-            'Planning Status', 'DELIVERED', 'DELIVERED2', 'Machine', '', 'Cutting Method',
-            'Quantity (WEIGHT)', 'Film', 'Thickness', 'Material Type', 'Machine Speed',
-            'Meters', 'setup time in minuets', 'Required Time', 'Planned Speed',
-            'Actual Speed', 'Planned Setup time', 'Actual Setup', 'DOWNTIME', 'Printing duration'
-        ];
-        
-        const exportData = [headers];
-        for (const [jobId, data] of Object.entries(plDatabase)) {
-            const jobData = jobDatabase[jobId] || {};
-            const currentSpeed = jobSpeeds[jobId] || jobData.machineSpeed || 200;
-            exportData.push([
-                data.jobNumber || '', data.jobName || jobData.name || '',
-                data.newPlat || '', data.prepressStatus || jobData.awStatus || '',
-                data.materialAvailability || '', data.planningStatus || jobData.status || 'Planned',
-                data.delivered || '', data.delivered2 || '',
-                data.machine || jobData.machine || '', '',
-                data.cuttingMethod || jobData.cuttingMethod || '',
-                data.quantity || jobData.quantity || 0,
-                data.film || jobData.film || '',
-                data.thickness || jobData.thickness || '',
-                data.materialType || jobData.materialType || '',
-                currentSpeed,
-                data.meters || jobData.quantity || 0,
-                data.setupTime || jobData.setup || 120,
-                data.requiredTime || jobData.requiredTime || 0,
-                data.plannedSpeed || currentSpeed,
-                data.actualSpeed || currentSpeed,
-                data.plannedSetup || jobData.setup || 120,
-                data.actualSetup || jobData.actualSetup || 0,
-                data.downtime || jobData.downtime || 0,
-                data.printingDuration || jobData.printingDuration || 0
-            ]);
-        }
-        
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(exportData);
-        XLSX.utils.book_append_sheet(wb, ws, 'PLAN-WEEK');
-        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([wbout], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'Downloaded Planning.xlsx';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        
-        showUploadProgress(`Exported ${Object.keys(plDatabase).length} jobs`, 100);
-        setTimeout(() => hideUploadProgress(), 2000);
-        console.log('Export completed successfully');
-    } catch (error) {
-        console.error('Error exporting PL data:', error);
-        showUploadProgress('Error exporting data', 100);
-        setTimeout(() => hideUploadProgress(), 3000);
-        alert('Error exporting data: ' + error.message);
-    }
-}
+// ============================================================
+// EXPOSE FUNCTIONS TO WINDOW
+// ============================================================
 
-// Setup export
-document.addEventListener('DOMContentLoaded', function() {
-    const downloadBtn = document.getElementById('download-excel-pl');
-    if (downloadBtn) downloadBtn.addEventListener('click', exportPLData);
-});
-
-window.exportPLData = exportPLData;
+window.uploadStatus = uploadStatus;
+window.updateUploadStatus = updateUploadStatus;
+window.checkUploadValidity = checkUploadValidity;
+window.updateStatusIndicators = updateStatusIndicators;
+window.detectUploader = detectUploader;
+window.startUploadStatusMonitoring = startUploadStatusMonitoring;
+window.updateRealTimeIndicator = updateRealTimeIndicator;
+window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
 window.handlePLUpload = handlePLUpload;
-window.setupExcelUploads = setupExcelUploads;
+window.findJobIdByNumber = findJobIdByNumber;
+window.calculateEstimatedDate = calculateEstimatedDate;
+
+console.log('✅ Upload status tracking initialized');
