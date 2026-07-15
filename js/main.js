@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
 });
 
+// In main.js - add to initializeApp() function
+
 function initializeApp() {
     console.log('Initializing application...');
     
@@ -37,11 +39,10 @@ function initializeApp() {
     updateAllJobColors();
     updateStatistics();
     
-// In main.js - add after initializeNowIndicators()
-setupNowIndicatorPersistence();
-setupResizeObserver();
-
-
+    // Setup now indicator persistence
+    setupNowIndicatorPersistence();
+    setupResizeObserver();
+    
     // Apply initial zoom
     setTimeout(() => {
         applySmartZoom();
@@ -55,6 +56,15 @@ setupResizeObserver();
     
     // Initialize timeline rulers
     setTimeout(initializeTimelineRulers, 1000);
+    
+    // ============================================================
+    // NEW: START UPLOAD STATUS MONITORING
+    // ============================================================
+    startUploadStatusMonitoring();
+    
+    // Update real-time clock
+    updateRealTimeIndicator();
+    setInterval(updateRealTimeIndicator, 1000);
     
     console.log('Application initialized successfully');
 }
@@ -100,7 +110,11 @@ function setupEventListeners() {
     document.addEventListener('keydown', handleKeydown);
     document.addEventListener('click', handleClickOutside);
     
+    // Setup drag and drop
     setupDragAndDrop();
+    
+    // Setup Excel uploads - make sure this runs
+    console.log('Calling setupExcelUploads...');
     setupExcelUploads();
     
     document.addEventListener('click', function(e) {
