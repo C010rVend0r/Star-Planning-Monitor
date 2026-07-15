@@ -286,6 +286,8 @@ function createJobElement(jobId, jobData) {
     
     return job;
 }
+// feed.js - Update createFeedJobElement
+
 function createFeedJobElement(jobId, jobData) {
     const feedJob = document.createElement('div');
     feedJob.className = 'feed-job';
@@ -294,16 +296,21 @@ function createFeedJobElement(jobId, jobData) {
     
     const duration = calculateJobDuration(jobData, jobId);
     
-    // AW status
-    let awStatus = jobData.rawAWStatus || jobData.awStatus || jobData.status || 'Missing Data';
+    // AW status - handle missing data
+    let awStatus = jobData.rawAWStatus || jobData.awStatus || jobData.status || 'Unknown';
     if (awStatus === '' || awStatus === 'Pending') {
         awStatus = 'Unknown';
+    }
+    
+    // If the job only has PL data (no AW), show the PL status as the main status
+    if (awStatus === 'Unknown' && jobData.planningStatus && jobData.planningStatus !== 'Unprinted') {
+        awStatus = jobData.planningStatus;
     }
     
     const statusColor = statusColorMap[awStatus] || '#6c757d';
     const statusDisplay = statusDisplayMap[awStatus] || awStatus || 'Unknown';
     
-    // Format the status date - only date, no time
+    // Format the status date
     let statusDateFormatted = '';
     if (jobData.statusDate) {
         const dateObj = new Date(jobData.statusDate);
@@ -323,7 +330,7 @@ function createFeedJobElement(jobId, jobData) {
     
     const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
     
-    // Format estimated date - only date, no time
+    // Format estimated date
     let estimatedDateFormatted = '';
     let estimatedDisplayText = '';
     if (jobData.estimatedDate) {
@@ -383,46 +390,86 @@ function formatDateOnly(date) {
 // PRODUCTION FEED
 // ============================================================
 
+// ============================================================
+// PRODUCTION FEED
+// ============================================================
+
+// feed.js - Update populateProductionFeed
+
 function populateProductionFeed() {
     const productionFeedList = document.getElementById('production-feed-list');
     if (!productionFeedList) return;
     
     productionFeedList.innerHTML = '';
+    
     const sortedJobIds = Object.keys(jobDatabase).sort((a, b) => {
         const dateA = jobDatabase[a].statusDate ? new Date(jobDatabase[a].statusDate) : new Date(1900, 0, 1);
         const dateB = jobDatabase[b].statusDate ? new Date(jobDatabase[b].statusDate) : new Date(1900, 0, 1);
         return dateB - dateA;
     });
     
+    if (sortedJobIds.length === 0) {
+        productionFeedList.innerHTML = `
+            <div style="text-align:center; padding:40px 20px; color:#6c757d;">
+                <i class="fas fa-inbox" style="font-size:32px; display:block; margin-bottom:12px;"></i>
+                <p>No jobs in the feed. Upload AW or PL data to get started.</p>
+            </div>
+        `;
+        updateStatistics();
+        return;
+    }
+    
     sortedJobIds.forEach(jobId => {
         const feedJob = createFeedJobElement(jobId, jobDatabase[jobId]);
         productionFeedList.appendChild(feedJob);
     });
     
+    // Apply filters
     applyFilter();
     updateFilterCounts();
     updateStatistics();
 }
 
 // ============================================================
+// SYNC FILTER CHECKBOXES - NEW FUNCTION
+// ============================================================
+
+function syncFilterCheckboxes() {
+    const filterPanel = document.getElementById('filter-panel');
+    if (!filterPanel) return;
+    
+    // Update all checkboxes to match filterStatuses
+    const checkboxes = filterPanel.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        const status = cb.value;
+        cb.checked = filterStatuses.has(status);
+    });
+}
+
+// ============================================================
 // STATISTICS
 // ============================================================
+// feed.js - Update the updateStatistics function
+
+// feed.js - Replace updateStatistics with this version
 
 function updateStatistics() {
     const allFeedItems = document.querySelectorAll('.feed-job');
     const visibleFeedItems = document.querySelectorAll('.feed-job:not(.filter-hidden)');
     const timelineJobs = document.querySelectorAll('.job:not(.job-printed)').length;
     
-    const plannedJobsElement = document.querySelector('.stat-card:nth-child(1) .stat-value');
-    const pendingJobsElement = document.querySelector('.stat-card:nth-child(2) .stat-value');
+    // Use IDs for stat cards
+    const plannedJobsElement = document.getElementById('stat-planned');
+    const pendingJobsElement = document.getElementById('stat-pending');
     
     if (plannedJobsElement) plannedJobsElement.textContent = timelineJobs;
     if (pendingJobsElement) pendingJobsElement.textContent = visibleFeedItems.length;
     
-    const feedCountElement = document.querySelector('.feed-count');
+    // Update feed count badges
+    const feedCountElement = document.getElementById('feed-count');
     if (feedCountElement) feedCountElement.textContent = `${allFeedItems.length} jobs`;
     
-    const visibleCountElement = document.querySelector('.feed-visible-count');
+    const visibleCountElement = document.getElementById('feed-visible-count');
     if (visibleCountElement) {
         const visibleCount = visibleFeedItems.length;
         const totalCount = allFeedItems.length;
@@ -436,41 +483,50 @@ function updateStatistics() {
     }
 }
 
+
 // ============================================================
 // FILTER FUNCTIONALITY
 // ============================================================
 
 function toggleFilterPanel() {
     let filterPanel = document.getElementById('filter-panel');
+    
+    // If panel exists, toggle it
     if (filterPanel) {
         filterPanel.classList.toggle('active');
+        const filterBtn = document.getElementById('filter-btn');
+        if (filterBtn) {
+            filterBtn.classList.toggle('active');
+        }
+        updateFilterBadge();
         return;
     }
     
+    // Create filter panel
     filterPanel = document.createElement('div');
     filterPanel.id = 'filter-panel';
     filterPanel.className = 'filter-panel';
     
+    // Header
     const header = document.createElement('div');
     header.className = 'filter-header';
     header.innerHTML = `
         <span><i class="fas fa-filter"></i> Filter by Status</span>
         <div class="filter-actions">
-            <button class="btn-filter-action" id="select-all-statuses">Select All</button>
-            <button class="btn-filter-action" id="clear-all-statuses">Clear All</button>
-            <button class="btn-filter-action" id="reset-default-filter">Reset Default</button>
+            <span class="filter-action-link" id="select-all-statuses">Select All</span>
+            <span class="filter-action-link" id="clear-all-statuses">Clear All</span>
+            <span class="filter-action-link" id="reset-default-filter">Reset Default</span>
         </div>
     `;
     filterPanel.appendChild(header);
     
+    // Info - smaller and grey
     const info = document.createElement('div');
     info.className = 'filter-info';
     info.innerHTML = `
-        <p style="font-size:12px; color:#6c757d; margin:0 0 10px 0;">
-            <i class="fas fa-info-circle"></i> 
-            AW and PL filters work independently. A job must match BOTH active filter sets to be shown.
-            If no filters are selected in a category, all jobs in that category are shown.
-        </p>
+        <i class="fas fa-info-circle"></i> 
+        ARTWORK and PLANNING filters work independently. A job must match <strong>BOTH</strong> active filter sets to be shown.
+        If no filters are selected in a category, all jobs in that category are shown.
     `;
     filterPanel.appendChild(info);
     
@@ -478,58 +534,76 @@ function toggleFilterPanel() {
     const awSection = document.createElement('div');
     awSection.className = 'filter-section';
     awSection.innerHTML = `
-        <div class="filter-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>AW Status <span style="font-size:11px; color:#6c757d; font-weight:normal;">(Artwork)</span></span>
-            <button class="btn-filter-action-small" id="aw-select-all">Select All</button>
-            <button class="btn-filter-action-small" id="aw-clear-all">Clear All</button>
+        <div class="filter-section-title">
+            <span class="section-label">
+                <i class="fas fa-paint-brush" style="color:var(--accent);"></i> AW Status
+                <span class="badge-aw">Artwork</span>
+            </span>
+            <div>
+                <span class="filter-action-link-small" id="aw-select-all">Select All</span>
+                <span class="filter-action-link-small" id="aw-clear-all">Clear All</span>
+            </div>
         </div>
     `;
     filterPanel.appendChild(awSection);
     
     const awList = document.createElement('div');
-    awList.className = 'filter-list';
+    awList.className = 'filter-list filter-list-single';
     
     AW_STATUSES.forEach(status => {
         const item = document.createElement('label');
         item.className = 'filter-item';
         const color = statusColorMap[status] || '#6c757d';
         const isChecked = filterStatuses.has(status);
+        const displayName = statusDisplayMap[status] || status;
+        const countId = `count-${status.replace(/\s/g, '-')}`;
         item.innerHTML = `
             <input type="checkbox" value="${status}" ${isChecked ? 'checked' : ''} data-type="aw">
             <span class="filter-color" style="background-color:${color}"></span>
-            <span class="filter-label">${statusDisplayMap[status] || status}</span>
-            <span class="filter-count" id="count-${status.replace(/\s/g, '-')}">0</span>
+            <span class="filter-label">${displayName}</span>
+            <span class="filter-count" id="${countId}">0</span>
         `;
         awList.appendChild(item);
+        
         const checkbox = item.querySelector('input');
         checkbox.addEventListener('change', function(e) {
             e.stopPropagation();
-            if (this.checked) filterStatuses.add(status);
-            else filterStatuses.delete(status);
+            if (this.checked) {
+                filterStatuses.add(status);
+            } else {
+                filterStatuses.delete(status);
+            }
             applyFilter();
             updateStatistics();
+            updateFilterBadge();
         });
     });
     filterPanel.appendChild(awList);
     
+    // Divider
     const divider = document.createElement('hr');
-    divider.style.cssText = 'margin: 10px 0; border: none; border-top: 1px solid #e9ecef;';
+    divider.className = 'filter-divider';
     filterPanel.appendChild(divider);
     
     // PL Section
     const plSection = document.createElement('div');
     plSection.className = 'filter-section';
     plSection.innerHTML = `
-        <div class="filter-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>PL Status <span style="font-size:11px; color:#6c757d; font-weight:normal;">(Planning)</span></span>
-            <button class="btn-filter-action-small" id="pl-select-all">Select All</button>
-            <button class="btn-filter-action-small" id="pl-clear-all">Clear All</button>
+        <div class="filter-section-title">
+            <span class="section-label">
+                <i class="fas fa-calendar-alt" style="color:var(--warning);"></i> PL Status
+                <span class="badge-pl">Planning</span>
+            </span>
+            <div>
+                <span class="filter-action-link-small" id="pl-select-all">Select All</span>
+                <span class="filter-action-link-small" id="pl-clear-all">Clear All</span>
+            </div>
         </div>
     `;
     filterPanel.appendChild(plSection);
     
     const plList = document.createElement('div');
-    plList.className = 'filter-list';
+    plList.className = 'filter-list filter-list-single';
     
     PL_STATUSES.forEach(status => {
         const item = document.createElement('label');
@@ -545,28 +619,39 @@ function toggleFilterPanel() {
             <span class="filter-count" id="${countId}">0</span>
         `;
         plList.appendChild(item);
+        
         const checkbox = item.querySelector('input');
         checkbox.addEventListener('change', function(e) {
             e.stopPropagation();
-            if (this.checked) filterStatuses.add(status);
-            else filterStatuses.delete(status);
+            if (this.checked) {
+                filterStatuses.add(status);
+            } else {
+                filterStatuses.delete(status);
+            }
             applyFilter();
             updateStatistics();
+            updateFilterBadge();
         });
     });
     filterPanel.appendChild(plList);
     
+    // Insert filter panel after feed controls (before the feed list)
     const feedControls = document.querySelector('.feed-controls');
-    if (feedControls) {
+    const feedContainer = document.getElementById('production-feed-container');
+    if (feedControls && feedContainer) {
+        feedControls.parentNode.insertBefore(filterPanel, feedContainer);
+    } else if (feedControls) {
         feedControls.parentNode.insertBefore(filterPanel, feedControls.nextSibling);
     }
     
+    // AW Section Controls
     document.getElementById('aw-select-all').addEventListener('click', function(e) {
         e.stopPropagation();
         AW_STATUSES.forEach(status => filterStatuses.add(status));
         awList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
         applyFilter();
         updateStatistics();
+        updateFilterBadge();
     });
     
     document.getElementById('aw-clear-all').addEventListener('click', function(e) {
@@ -575,14 +660,17 @@ function toggleFilterPanel() {
         awList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
         applyFilter();
         updateStatistics();
+        updateFilterBadge();
     });
     
+    // PL Section Controls
     document.getElementById('pl-select-all').addEventListener('click', function(e) {
         e.stopPropagation();
         PL_STATUSES.forEach(status => filterStatuses.add(status));
         plList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
         applyFilter();
         updateStatistics();
+        updateFilterBadge();
     });
     
     document.getElementById('pl-clear-all').addEventListener('click', function(e) {
@@ -591,34 +679,17 @@ function toggleFilterPanel() {
         plList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
         applyFilter();
         updateStatistics();
+        updateFilterBadge();
     });
     
-    document.getElementById('reset-default-filter').addEventListener('click', function(e) {
-        e.stopPropagation();
-        filterStatuses = new Set();
-        AW_STATUSES.forEach(status => {
-            if (status !== 'Missing Data' && status !== 'Unknown' && status !== 'Deleted' && status !== 'On Hold') {
-                filterStatuses.add(status);
-            }
-        });
-        PL_STATUSES.forEach(status => {
-            if (status === 'Planned' || status === 'Unprinted') {
-                filterStatuses.add(status);
-            }
-        });
-        filterPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            cb.checked = filterStatuses.has(cb.value);
-        });
-        applyFilter();
-        updateStatistics();
-    });
-    
+    // Global Controls
     document.getElementById('select-all-statuses').addEventListener('click', function(e) {
         e.stopPropagation();
         ALL_STATUSES.forEach(status => filterStatuses.add(status));
         filterPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
         applyFilter();
         updateStatistics();
+        updateFilterBadge();
     });
     
     document.getElementById('clear-all-statuses').addEventListener('click', function(e) {
@@ -627,11 +698,120 @@ function toggleFilterPanel() {
         filterPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
         applyFilter();
         updateStatistics();
+        updateFilterBadge();
     });
     
-    setTimeout(() => updateFilterCounts(), 100);
-    filterPanel.classList.add('active');
+// feed.js - Update the reset-default-filter handler in toggleFilterPanel
+
+// feed.js - Update the reset-default-filter handler in toggleFilterPanel
+
+document.getElementById('reset-default-filter').addEventListener('click', function(e) {
+    e.stopPropagation();
+    // Reset to default - include 'Unknown'
+    filterStatuses = new Set();
+    AW_STATUSES.forEach(status => {
+        if (status !== 'Missing Data' && status !== 'Deleted' && status !== 'On Hold') {
+            filterStatuses.add(status);
+        }
+    });
+    // Add 'Unknown' to default filters
+    filterStatuses.add('Unknown');
+    PL_STATUSES.forEach(status => {
+        if (status === 'Planned' || status === 'Unprinted') {
+            filterStatuses.add(status);
+        }
+    });
+    // Update checkboxes
+    filterPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.checked = filterStatuses.has(cb.value);
+    });
+    applyFilter();
+    updateStatistics();
+    updateFilterBadge();
+});
+    
+    // Show panel with animation
+    setTimeout(() => {
+        filterPanel.classList.add('active');
+        const filterBtn = document.getElementById('filter-btn');
+        if (filterBtn) {
+            filterBtn.classList.add('active');
+        }
+        updateFilterCounts();
+        updateFilterBadge();
+    }, 50);
 }
+
+// ============================================================
+// not to ignor PL filters if AW uploads last
+// ============================================================
+// feed.js - Add these functions
+
+// Save and restore filter state
+function saveFilterState() {
+    return new Set(filterStatuses);
+}
+
+function restoreFilterState(savedState) {
+    filterStatuses = savedState;
+    // Update checkboxes to match
+    syncFilterCheckboxes();
+    applyFilter();
+    updateStatistics();
+    updateFilterBadge();
+}
+
+// Also update the populateProductionFeed function to preserve filters
+// feed.js - Replace populateProductionFeed with this version
+
+
+// ============================================================
+// UPDATE FILTER BADGE
+// ============================================================
+
+function updateFilterBadge() {
+    const filterBadge = document.getElementById('filter-badge');
+    if (!filterBadge) return;
+    
+    // Count active filters
+    let activeCount = 0;
+    for (const status of filterStatuses) {
+        activeCount++;
+    }
+    
+    // Count total available filters
+    const totalFilters = ALL_STATUSES.length;
+    
+    if (activeCount > 0 && activeCount < totalFilters) {
+        filterBadge.textContent = activeCount;
+        filterBadge.style.display = 'inline-block';
+    } else if (activeCount === totalFilters) {
+        filterBadge.textContent = 'All';
+        filterBadge.style.display = 'inline-block';
+    } else {
+        filterBadge.textContent = '0';
+        filterBadge.style.display = 'none';
+    }
+}
+
+// ============================================================
+// SYNC FILTER CHECKBOXES
+// ============================================================
+
+function syncFilterCheckboxes() {
+    const filterPanel = document.getElementById('filter-panel');
+    if (!filterPanel) return;
+    
+    const checkboxes = filterPanel.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        const status = cb.value;
+        cb.checked = filterStatuses.has(status);
+    });
+    updateFilterBadge();
+}
+// feed.js - Replace the applyFilter and updateFilterCounts functions
+
+// feed.js - Replace applyFilter with this version
 
 function applyFilter() {
     const feedItems = document.querySelectorAll('.feed-job');
@@ -656,18 +836,20 @@ function applyFilter() {
             return;
         }
         
+        // Get AW status from the feed item's data attribute
         const statusElement = item.querySelector('.feed-status');
         let awStatus = '';
         if (statusElement) {
             awStatus = statusElement.getAttribute('data-raw-status') || '';
             if (!awStatus) {
                 const text = statusElement.textContent.trim();
-                const match = text.match(/AW:\s*(.+)/);
+                const match = text.match(/AW:\s*(.+?)(?:\s+since:|$)/);
                 if (match) awStatus = match[1].trim();
                 else awStatus = text.trim();
             }
         }
         
+        // Get PL status from the feed item's data attribute or database
         const plStatusElement = item.querySelector('.feed-pl-status');
         let plStatus = '';
         if (plStatusElement) {
@@ -679,43 +861,103 @@ function applyFilter() {
             }
         }
         
+        // Also get from job database directly (most reliable)
+        const jobId = item.getAttribute('data-job-id');
+        const jobData = jobDatabase[jobId];
+        if (jobData) {
+            if (jobData.planningStatus) {
+                plStatus = jobData.planningStatus;
+            }
+            if (jobData.rawAWStatus) {
+                awStatus = jobData.rawAWStatus;
+            } else if (jobData.awStatus) {
+                awStatus = jobData.awStatus;
+            }
+        }
+        
+        // Match AW status to AW_STATUSES
         let awMatched = null;
         if (awStatus) {
-            awMatched = AW_STATUSES.find(s => statusDisplayMap[s] === awStatus || s === awStatus);
-            if (!awMatched) {
-                const isPLStatus = PL_STATUSES.some(s => statusDisplayMap[s] === awStatus || s === awStatus);
-                if (isPLStatus || awStatus === '' || awStatus === 'Pending') awMatched = 'Unknown';
-                else awMatched = 'Unknown';
+            // Try direct match first
+            if (AW_STATUSES.includes(awStatus)) {
+                awMatched = awStatus;
+            } else {
+                // Try display name match
+                awMatched = AW_STATUSES.find(s => statusDisplayMap[s] === awStatus);
+                if (!awMatched) {
+                    // If it's a PL status, treat as Unknown for AW filtering
+                    const isPLStatus = PL_STATUSES.some(s => statusDisplayMap[s] === awStatus || s === awStatus);
+                    if (isPLStatus || awStatus === '' || awStatus === 'Pending') {
+                        awMatched = 'Unknown';
+                    } else {
+                        awMatched = 'Unknown';
+                    }
+                }
             }
         } else {
             awMatched = 'Unknown';
         }
         
+        // Match PL status to PL_STATUSES
         let plMatched = null;
         if (plStatus) {
-            if (plStatus === 'Deleted') plMatched = 'PL-Deleted';
-            else if (plStatus === 'Hold') plMatched = 'PL-Hold';
-            else {
-                plMatched = PL_STATUSES.find(s => s === plStatus);
-                if (!plMatched) {
-                    for (const [key, value] of Object.entries(statusDisplayMap)) {
-                        if (value === plStatus && PL_STATUSES.includes(key)) {
-                            plMatched = key;
-                            break;
-                        }
+            // Direct match
+            if (PL_STATUSES.includes(plStatus)) {
+                plMatched = plStatus;
+            } else {
+                // Try display name match
+                for (const [key, value] of Object.entries(statusDisplayMap)) {
+                    if (value === plStatus && PL_STATUSES.includes(key)) {
+                        plMatched = key;
+                        break;
                     }
                 }
+                // If still not found, use Unprinted as fallback
+                if (!plMatched) {
+                    plMatched = 'Unprinted';
+                }
+            }
+        } else {
+            plMatched = 'Unprinted';
+        }
+        
+        // SPECIAL CASE: If AW status is 'Unknown' and there's no AW filter, show the job
+        // OR if the PL filter is active and the job matches the PL filter, show it
+        let awVisible = true;
+        if (hasAWFilter) {
+            // If the AW filter doesn't include 'Unknown', but the job has 'Unknown' AW status,
+            // we still want to show it if it has a valid PL status that matches the PL filter
+            if (awMatched === 'Unknown' && !awFilterStatuses.has('Unknown')) {
+                // Only hide if there's no PL filter or if the PL filter also doesn't match
+                if (hasPLFilter) {
+                    awVisible = plFilterStatuses.has(plMatched);
+                } else {
+                    // If only AW filter is active and doesn't include Unknown, hide Unknown jobs
+                    awVisible = false;
+                }
+            } else {
+                awVisible = awFilterStatuses.has(awMatched);
             }
         }
-        if (!plMatched) plMatched = 'Unprinted';
-        
-        let awVisible = true;
-        if (hasAWFilter) awVisible = awFilterStatuses.has(awMatched);
         
         let plVisible = true;
-        if (hasPLFilter) plVisible = plFilterStatuses.has(plMatched);
+        if (hasPLFilter) {
+            plVisible = plFilterStatuses.has(plMatched);
+        }
         
-        if (awVisible && plVisible) {
+        // Final visibility decision
+        let isVisible = false;
+        if (hasAWFilter && hasPLFilter) {
+            isVisible = awVisible && plVisible;
+        } else if (hasAWFilter) {
+            isVisible = awVisible;
+        } else if (hasPLFilter) {
+            isVisible = plVisible;
+        } else {
+            isVisible = true;
+        }
+        
+        if (isVisible) {
             item.classList.remove('filter-hidden');
             visibleCount++;
         } else {
@@ -723,7 +965,8 @@ function applyFilter() {
         }
     });
     
-    const visibleJobsElement = document.querySelector('.feed-header .feed-visible-count');
+    // Update visible count display
+    const visibleJobsElement = document.getElementById('feed-visible-count');
     if (visibleJobsElement) {
         const totalCount = feedItems.length;
         if (visibleCount === totalCount) {
@@ -745,77 +988,62 @@ function updateFilterCounts() {
     ALL_STATUSES.forEach(s => counts[s] = 0);
     
     allFeedItems.forEach(item => {
-        const statusElement = item.querySelector('.feed-status');
-        let awStatus = '';
-        if (statusElement) {
-            awStatus = statusElement.getAttribute('data-raw-status') || '';
-            if (!awStatus) {
-                const text = statusElement.textContent.trim();
-                const match = text.match(/AW:\s*(.+)/);
-                if (match) awStatus = match[1].trim();
-                else awStatus = text.trim();
-            }
-        }
-        
-        const plStatusElement = item.querySelector('.feed-pl-status');
-        let plStatus = '';
-        if (plStatusElement) {
-            plStatus = plStatusElement.getAttribute('data-raw-pl-status') || '';
-            if (!plStatus) {
-                const plText = plStatusElement.textContent.trim();
-                const match = plText.match(/PL:\s*(.+)/);
-                if (match) plStatus = match[1].trim();
-            }
-        }
-        
         const jobId = item.getAttribute('data-job-id');
         const jobData = jobDatabase[jobId];
-        let rawAWStatus = awStatus;
-        if (jobData && jobData.rawAWStatus !== undefined) rawAWStatus = jobData.rawAWStatus;
         
+        // Get AW status from database
+        let awStatus = jobData?.rawAWStatus || jobData?.awStatus || jobData?.status || 'Unknown';
+        
+        // Map to AW_STATUSES
         let awMatched = null;
-        if (rawAWStatus) {
-            if (rawAWStatus === 'Missing Data') awMatched = 'Missing Data';
-            else if (AW_STATUSES.includes(rawAWStatus)) awMatched = rawAWStatus;
-            else awMatched = AW_STATUSES.find(s => statusDisplayMap[s] === rawAWStatus);
-        }
-        if (!awMatched) {
-            if (!rawAWStatus || rawAWStatus === '' || rawAWStatus === 'Pending' || rawAWStatus === 'Unknown') {
-                awMatched = 'Unknown';
-            } else {
-                const isPLStatus = PL_STATUSES.some(s => statusDisplayMap[s] === rawAWStatus || s === rawAWStatus);
-                if (isPLStatus) awMatched = 'Unknown';
-                else awMatched = 'Unknown';
+        if (AW_STATUSES.includes(awStatus)) {
+            awMatched = awStatus;
+        } else {
+            // Try display name match
+            awMatched = AW_STATUSES.find(s => statusDisplayMap[s] === awStatus);
+            if (!awMatched) {
+                // Check if it's a PL status
+                const isPLStatus = PL_STATUSES.some(s => statusDisplayMap[s] === awStatus || s === awStatus);
+                if (isPLStatus || awStatus === '' || awStatus === 'Pending') {
+                    awMatched = 'Unknown';
+                } else {
+                    awMatched = 'Unknown';
+                }
             }
         }
         if (awMatched) counts[awMatched] = (counts[awMatched] || 0) + 1;
         
-        if (plStatus) {
-            let plMatched = null;
-            if (plStatus === 'Deleted') plMatched = 'PL-Deleted';
-            else if (plStatus === 'Hold') plMatched = 'PL-Hold';
-            else {
-                plMatched = PL_STATUSES.find(s => s === plStatus);
-                if (!plMatched) {
-                    for (const [key, value] of Object.entries(statusDisplayMap)) {
-                        if (value === plStatus && PL_STATUSES.includes(key)) {
-                            plMatched = key;
-                            break;
-                        }
-                    }
+        // Get PL status from database
+        let plStatus = jobData?.planningStatus || 'Unprinted';
+        
+        // Map to PL_STATUSES
+        let plMatched = null;
+        if (PL_STATUSES.includes(plStatus)) {
+            plMatched = plStatus;
+        } else {
+            // Try display name match
+            for (const [key, value] of Object.entries(statusDisplayMap)) {
+                if (value === plStatus && PL_STATUSES.includes(key)) {
+                    plMatched = key;
+                    break;
                 }
             }
-            if (plMatched) counts[plMatched] = (counts[plMatched] || 0) + 1;
+            if (!plMatched) {
+                plMatched = 'Unprinted';
+            }
         }
+        if (plMatched) counts[plMatched] = (counts[plMatched] || 0) + 1;
     });
     
+    // Update filter count badges
     ALL_STATUSES.forEach(status => {
         const badgeId = `count-${status.replace(/\s/g, '-')}`;
         const badge = document.getElementById(badgeId);
         if (badge) badge.textContent = counts[status] || 0;
     });
     
-    const totalJobsElement = document.querySelector('.feed-header .feed-count');
+    // Update total jobs count
+    const totalJobsElement = document.getElementById('feed-count');
     if (totalJobsElement) totalJobsElement.textContent = `${allFeedItems.length} jobs`;
 }
 
@@ -1176,3 +1404,4 @@ window.handleSearch = handleSearch;
 window.updateTime = updateTime;
 window.updateJobTimeDisplay = updateJobTimeDisplay;
 window.updateAllJobTimes = updateAllJobTimes;
+window.syncFilterCheckboxes = syncFilterCheckboxes;
