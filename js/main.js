@@ -37,6 +37,11 @@ function initializeApp() {
     updateAllJobColors();
     updateStatistics();
     
+// In main.js - add after initializeNowIndicators()
+setupNowIndicatorPersistence();
+setupResizeObserver();
+
+
     // Apply initial zoom
     setTimeout(() => {
         applySmartZoom();
