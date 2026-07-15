@@ -137,24 +137,39 @@ body {
 .status-active { background: #d4edda; color: #155724; }
 
 /* ---------- TIMELINE ---------- */
+/* ---------- TIMELINE ---------- */
 .timeline-wrapper {
     position: relative;
     background: #f1f3f5;
     border-radius: 8px;
     padding: 4px 0 0 0;
     border: 1px solid #e9ecef;
+    overflow: hidden;
 }
+
 .timeline-container {
     position: relative;
     overflow-x: auto;
     overflow-y: hidden;
     padding: 8px 0 4px 0;
     scroll-behavior: smooth;
+    width: 100%;
 }
-.timeline-container::-webkit-scrollbar { height: 8px; }
-.timeline-container::-webkit-scrollbar-track { background: #e9ecef; border-radius: 10px; }
-.timeline-container::-webkit-scrollbar-thumb { background: #adb5bd; border-radius: 10px; }
-.timeline-container::-webkit-scrollbar-thumb:hover { background: #8c959f; }
+
+.timeline-container::-webkit-scrollbar {
+    height: 8px;
+}
+.timeline-container::-webkit-scrollbar-track {
+    background: #e9ecef;
+    border-radius: 10px;
+}
+.timeline-container::-webkit-scrollbar-thumb {
+    background: #adb5bd;
+    border-radius: 10px;
+}
+.timeline-container::-webkit-scrollbar-thumb:hover {
+    background: #8c959f;
+}
 
 .timeline {
     display: flex;
@@ -164,98 +179,30 @@ body {
     background: #f8f9fa;
     border-radius: 0 0 8px 8px;
     position: relative;
+    width: fit-content;
     min-width: 100%;
+    flex-shrink: 0;
 }
-.timeline .job { margin-top: 4px; }
+
+.timeline .job {
+    margin-top: 4px;
+    flex-shrink: 0;
+}
 
 /* ---------- TIMELINE RULER ---------- */
 .timeline-ruler {
     position: relative;
-    width: 100%;
+    width: fit-content;        /* Changed from 100% */
+    min-width: 100%;           /* Added */
     height: 28px;
-    background: #f8f9fa;
+    background: #faf8f8;
     border-bottom: 1px solid #dee2e6;
     border-radius: 4px 4px 0 0;
     margin-bottom: 2px;
     flex-shrink: 0;
     overflow: visible;
     z-index: 2;
-}
-.timeline-ruler .ruler-tick {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    border-left: 1px solid #dee2e6;
-    padding-top: 2px;
-    font-size: 8px;
-    color: #6c757d;
-    font-weight: 500;
-    transform: translateX(-50%);
-    white-space: nowrap;
-    z-index: 3;
-    pointer-events: none;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-.timeline-ruler .ruler-tick .tick-time {
-    font-size: 8px;
-    font-weight: 600;
-    color: #495057;
-    background: #f8f9fa;
-    padding: 0 3px;
-    border-radius: 2px;
-    line-height: 1.2;
-}
-.timeline-ruler .ruler-tick .tick-date {
-    font-size: 7px;
-    color: #6c757d;
-    background: #f8f9fa;
-    padding: 0 3px;
-    border-radius: 2px;
-    line-height: 1.2;
-}
-.timeline-ruler .ruler-tick.major-tick {
-    border-left-color: #adb5bd;
-    border-left-width: 2px;
-}
-.timeline-ruler .ruler-tick.major-tick .tick-time {
-    font-size: 9px;
-    font-weight: 700;
-    color: #2c3e50;
-}
-.timeline-ruler .ruler-tick.minor-tick {
-    border-left-color: #e9ecef;
-    border-left-width: 1px;
-}
-.timeline-ruler .ruler-tick.minor-tick .tick-time {
-    font-size: 7px;
-    color: #868e96;
-}
-.timeline-ruler .ruler-now-marker {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    width: 2px;
-    background: #e74c3c;
-    transform: translateX(-50%);
-    z-index: 6;
-}
-.ruler-now-marker .ruler-now-label {
-    position: absolute;
-    top: -16px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 8px;
-    font-weight: 700;
-    color: #e74c3c;
-    background: white;
-    padding: 0 8px;
-    border-radius: 3px;
-    white-space: nowrap;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    box-sizing: border-box;    /* Added */
 }
 
 /* ---------- TIMELINE DATE HEADER ---------- */
@@ -270,6 +217,9 @@ body {
     border-bottom: 1px solid #e9ecef;
     border-radius: 8px 8px 0 0;
     font-weight: 500;
+    width: fit-content;        /* Added */
+    min-width: 100%;           /* Added */
+    box-sizing: border-box;    /* Added */
 }
 .timeline-date-header .date-range { color: #495057; }
 .timeline-date-header .today-date { color: #e74c3c; font-weight: 600; }
