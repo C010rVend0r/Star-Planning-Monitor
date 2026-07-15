@@ -1,15 +1,10 @@
-// timeline.js
+// timeline.js - COMPLETE WORKING VERSION
 // ============================================================
 // TIMELINE & MACHINE FUNCTIONS
 // ============================================================
 
 // ============================================================
 // CONFIGURATION
-// ============================================================
-const RULER_SHIFT_OFFSET = 30; // Pixel offset to align ruler ticks with job badges
-
-// ============================================================
-// MACHINE CONFIGURATION
 // ============================================================
 const machineConfig = {
     speed: 200,
@@ -55,10 +50,15 @@ let nowIndicatorInterval = null;
 let selectedJob = null;
 let dragOverElement = null;
 let draggedElement = null;
+const nowIndicatorPositions = {};
 
 // ============================================================
-// TIMELINE RULER - WITH OFFSET ADJUSTMENT
+// TIMELINE RULER - COMPLETE WORKING VERSION
 // ============================================================
+// timeline.js - Add these updated functions
+
+// Add a cache to track timeline state
+const timelineStateCache = {};
 
 function generateTimelineRuler(timeline) {
     const container = timeline.closest('.timeline-container');
@@ -73,26 +73,21 @@ function generateTimelineRuler(timeline) {
     const jobs = timeline.querySelectorAll('.job');
     if (jobs.length === 0) return;
     
-    // Get container dimensions
-    const containerWidth = container.clientWidth || 800;
-    const timelineScrollWidth = timeline.scrollWidth || timeline.offsetWidth || 800;
-    const totalWidth = Math.max(timelineScrollWidth, containerWidth);
+    // Use the larger of scrollWidth or offsetWidth for consistency
+    const totalWidth = Math.max(timeline.scrollWidth, timeline.offsetWidth, 800);
     
-    // Get the container's bounding rect for reference
     const containerRect = container.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft || 0;
     
-    // Get the actual pixel position of each job relative to the container
+    // Get job positions with more precise calculation
     let jobPositions = [];
-    
     jobs.forEach(job => {
         const jobId = job.getAttribute('data-job-id');
         const scheduleData = jobSchedule[jobId];
-        
         if (scheduleData) {
             const jobRect = job.getBoundingClientRect();
-            const leftPx = jobRect.left - containerRect.left + container.scrollLeft + RULER_SHIFT_OFFSET;
-            const rightPx = jobRect.right - containerRect.left + container.scrollLeft + RULER_SHIFT_OFFSET;
-            
+            const leftPx = jobRect.left - containerRect.left + scrollLeft;
+            const rightPx = jobRect.right - containerRect.left + scrollLeft;
             jobPositions.push({
                 id: jobId,
                 startTime: scheduleData.startTime,
@@ -106,7 +101,21 @@ function generateTimelineRuler(timeline) {
     
     if (jobPositions.length === 0) return;
     
-    // Create date header
+    // Create a hash of the current state to detect changes
+    const stateHash = jobPositions.map(p => 
+        `${p.id}|${p.leftPx.toFixed(2)}|${p.rightPx.toFixed(2)}|${p.isPrinted}`
+    ).join(';');
+    
+    // Check if state has changed - if not, don't regenerate the ruler
+    const timelineId = timeline.id;
+    if (timelineStateCache[timelineId] === stateHash) {
+        // State hasn't changed, but we might need to restore the ruler
+        // Just return without regenerating
+        return;
+    }
+    timelineStateCache[timelineId] = stateHash;
+    
+    // Date header
     const dateHeader = document.createElement('div');
     dateHeader.className = 'timeline-date-header';
     const firstJobStart = jobPositions[0].startTime;
@@ -117,7 +126,7 @@ function generateTimelineRuler(timeline) {
     
     dateHeader.innerHTML = `
         <span class="date-range">
-           ${startDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} 
+            ${startDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} 
             → ${endDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
         </span>
         <span class="today-date">
@@ -125,13 +134,12 @@ function generateTimelineRuler(timeline) {
         </span>
     `;
     
-    // Create ruler with the same width as the timeline
+    // Ruler
     const ruler = document.createElement('div');
     ruler.className = 'timeline-ruler';
     ruler.style.cssText = `
         position: relative;
-        width: 100%;
-        min-width: ${totalWidth}px;
+        width: ${totalWidth}px;
         height: 34px;
         background: rgb(175, 178, 185);
         border-bottom: 2px solid #dee2e6;
@@ -143,13 +151,10 @@ function generateTimelineRuler(timeline) {
         box-sizing: border-box;
     `;
     
-    // For each job, add a start tick at the left edge and end tick at the right edge
+    // Add ticks for each job
     jobPositions.forEach((pos, index) => {
-        const startPercent = (pos.leftPx / totalWidth) * 100;
-        const endPercent = (pos.rightPx / totalWidth) * 100;
-        
-        const clampedStart = Math.max(0.5, Math.min(99.5, startPercent));
-        const clampedEnd = Math.max(0.5, Math.min(99.5, endPercent));
+        const startPercent = Math.max(0, Math.min(100, (pos.leftPx / totalWidth) * 100));
+        const endPercent = Math.max(0, Math.min(100, (pos.rightPx / totalWidth) * 100));
         
         const startDateObj = new Date(pos.startTime);
         const endDateObj = new Date(pos.endTime);
@@ -162,7 +167,7 @@ function generateTimelineRuler(timeline) {
         const showStartDate = index === 0 || startDateObj.getDate() !== new Date(jobPositions[index - 1].startTime).getDate();
         const showEndDate = index === jobPositions.length - 1 || endDateObj.getDate() !== new Date(jobPositions[index + 1].startTime).getDate();
         
-        // START TICK
+        // Start tick
         const startTick = document.createElement('div');
         startTick.className = 'ruler-tick start-tick';
         startTick.style.cssText = `
@@ -174,12 +179,11 @@ function generateTimelineRuler(timeline) {
             align-items: center;
             justify-content: flex-start;
             padding-top: 2px;
-            transform: translateX(-50%);
             white-space: nowrap;
             z-index: 3;
             pointer-events: none;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            left: ${clampedStart}%;
+            left: ${startPercent}%;
             border-left: 2px solid #777777;
         `;
         startTick.innerHTML = `
@@ -190,7 +194,7 @@ function generateTimelineRuler(timeline) {
         `;
         ruler.appendChild(startTick);
         
-        // END TICK
+        // End tick
         const endTick = document.createElement('div');
         endTick.className = 'ruler-tick end-tick';
         endTick.style.cssText = `
@@ -202,12 +206,11 @@ function generateTimelineRuler(timeline) {
             align-items: center;
             justify-content: flex-start;
             padding-top: 2px;
-            transform: translateX(-50%);
             white-space: nowrap;
             z-index: 3;
             pointer-events: none;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            left: ${clampedEnd}%;
+            left: ${endPercent}%;
             border-left: 2px solid #777777;
         `;
         endTick.innerHTML = `
@@ -219,18 +222,10 @@ function generateTimelineRuler(timeline) {
         ruler.appendChild(endTick);
     });
     
-    // Add boundary lines between jobs
+    // Boundary lines
     for (let i = 1; i < jobPositions.length; i++) {
         const pos = jobPositions[i];
-        const jobElement = document.querySelector(`.job[data-job-id="${pos.id}"]`);
-        if (!jobElement) continue;
-        
-        const jobRect = jobElement.getBoundingClientRect();
-        // Calculate position WITHOUT the shift offset
-        const rawLeftPx = jobRect.left - containerRect.left + container.scrollLeft;
-        const boundaryPercent = (rawLeftPx / totalWidth) * 100;
-        const clampedBoundary = Math.max(0.5, Math.min(99.5, boundaryPercent));
-        
+        const boundaryPercent = Math.max(0, Math.min(100, (pos.leftPx / totalWidth) * 100));
         const boundaryLine = document.createElement('div');
         boundaryLine.style.cssText = `
             position: absolute;
@@ -240,31 +235,16 @@ function generateTimelineRuler(timeline) {
             background: rgba(0, 0, 0, 0.08);
             pointer-events: none;
             z-index: 1;
-            left: ${clampedBoundary}%;
+            left: ${boundaryPercent}%;
         `;
         ruler.appendChild(boundaryLine);
     }
     
-    // Insert date header and ruler BEFORE the timeline
-    try {
-        container.insertBefore(dateHeader, timeline);
-        container.insertBefore(ruler, timeline);
-    } catch (e) {
-        container.appendChild(dateHeader);
-        container.appendChild(ruler);
-    }
-    
-    // Update now indicator position after ruler is created
-    updateNowIndicatorPosition(timeline);
+    container.prepend(ruler);
+    container.prepend(dateHeader);
 }
 
-// ============================================================
-// NOW INDICATOR - PIXEL-BASED (matches ruler exactly)
-// ============================================================
-
-// Store the last calculated position for each timeline
-const nowIndicatorPositions = {};
-
+// Update the now indicator to use the cached state
 function updateNowIndicatorPosition(timeline) {
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -273,117 +253,10 @@ function updateNowIndicatorPosition(timeline) {
     const container = timeline.closest('.timeline-container');
     if (!container) return;
     
-    const ruler = container.querySelector('.timeline-ruler');
+    let ruler = container.querySelector('.timeline-ruler');
     if (!ruler) return;
     
     const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
-    if (jobs.length === 0) {
-        const marker = ruler.querySelector('.ruler-now-marker');
-        if (marker) marker.remove();
-        delete nowIndicatorPositions[timeline.id];
-        return;
-    }
-    
-    // Get container dimensions
-    const containerRect = container.getBoundingClientRect();
-    const containerWidth = container.clientWidth || 800;
-    const timelineScrollWidth = timeline.scrollWidth || timeline.offsetWidth || 800;
-    const totalWidth = Math.max(timelineScrollWidth, containerWidth);
-    
-    let positionPercentage = 5;
-    let foundPosition = false;
-    
-    // Get the first and last job for boundaries
-    const firstJob = jobs[0];
-    const lastJob = jobs[jobs.length - 1];
-    const firstJobId = firstJob.getAttribute('data-job-id');
-    const lastJobId = lastJob.getAttribute('data-job-id');
-    
-    if (!jobSchedule[firstJobId] || !jobSchedule[lastJobId]) {
-        const marker = ruler.querySelector('.ruler-now-marker');
-        if (marker) marker.remove();
-        return;
-    }
-    
-    const firstStart = jobSchedule[firstJobId].startTime;
-    const lastEnd = jobSchedule[lastJobId].endTime;
-    
-    // CRITICAL FIX: Use RAW position WITHOUT RULER_SHIFT_OFFSET
-    // This matches the boundary lines which are correctly positioned
-    for (let i = 0; i < jobs.length; i++) {
-        const job = jobs[i];
-        const jobId = job.getAttribute('data-job-id');
-        const schedule = jobSchedule[jobId];
-        
-        if (!schedule) continue;
-        
-        const jobStart = schedule.startTime;
-        const jobEnd = schedule.endTime;
-        
-        // Get RAW pixel position WITHOUT the shift offset
-        const jobRect = job.getBoundingClientRect();
-        const leftPx = jobRect.left - containerRect.left + container.scrollLeft;  // NO OFFSET
-        const rightPx = jobRect.right - containerRect.left + container.scrollLeft; // NO OFFSET
-        
-        if (nowTime >= jobStart && nowTime <= jobEnd) {
-            const jobDuration = jobEnd - jobStart;
-            const elapsed = nowTime - jobStart;
-            const jobProgress = jobDuration > 0 ? elapsed / jobDuration : 0;
-            
-            const pos = leftPx + (jobProgress * (rightPx - leftPx));
-            positionPercentage = (pos / totalWidth) * 100;
-            foundPosition = true;
-            break;
-        }
-        
-        // Check if current time is between jobs
-        if (i < jobs.length - 1) {
-            const nextJob = jobs[i + 1];
-            const nextJobId = nextJob.getAttribute('data-job-id');
-            const nextSchedule = jobSchedule[nextJobId];
-            
-            if (nextSchedule && nowTime > jobEnd && nowTime < nextSchedule.startTime) {
-                const nextJobRect = nextJob.getBoundingClientRect();
-                const nextLeftPx = nextJobRect.left - containerRect.left + container.scrollLeft; // NO OFFSET
-                
-                const gapStart = jobEnd;
-                const gapEnd = nextSchedule.startTime;
-                const gapDuration = gapEnd - gapStart;
-                const gapElapsed = nowTime - gapStart;
-                const gapProgress = gapDuration > 0 ? gapElapsed / gapDuration : 0;
-                
-                const pos = rightPx + (gapProgress * (nextLeftPx - rightPx));
-                positionPercentage = (pos / totalWidth) * 100;
-                foundPosition = true;
-                break;
-            }
-        }
-    }
-    
-    // If not found, position at edges
-    if (!foundPosition) {
-        if (nowTime < firstStart) {
-            positionPercentage = 2;
-        } else if (nowTime > lastEnd) {
-            positionPercentage = 98;
-        } else {
-            const totalDuration = lastEnd - firstStart;
-            let progress = (nowTime - firstStart) / totalDuration;
-            progress = Math.max(0, Math.min(1, progress));
-            positionPercentage = 2 + (progress * 96);
-        }
-    }
-    
-    positionPercentage = Math.max(1, Math.min(99, positionPercentage));
-    
-    // Store for debugging
-    nowIndicatorPositions[timeline.id] = {
-        position: positionPercentage,
-        time: timeString,
-        totalWidth: totalWidth,
-        jobs: jobs.length,
-        foundPosition: foundPosition
-    };
     
     // Get or create marker
     let marker = ruler.querySelector('.ruler-now-marker');
@@ -393,21 +266,147 @@ function updateNowIndicatorPosition(timeline) {
         ruler.appendChild(marker);
     }
     
-    // Apply position
+    // Hide if no jobs
+    if (jobs.length === 0) {
+        marker.style.display = 'none';
+        delete nowIndicatorPositions[timeline.id];
+        return;
+    }
+    
+    marker.style.display = 'block';
+    
+    // Get container dimensions
+    const containerRect = container.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft || 0;
+    const totalWidth = Math.max(ruler.offsetWidth, timeline.scrollWidth, 800);
+    
+    let positionPercentage = 2;
+    let foundPosition = false;
+    let currentJob = null;
+    let currentJobProgress = 0;
+    
+    // Find current job
+    for (let i = 0; i < jobs.length; i++) {
+        const job = jobs[i];
+        const jobId = job.getAttribute('data-job-id');
+        const schedule = jobSchedule[jobId];
+        if (!schedule) continue;
+        
+        const jobStart = schedule.startTime;
+        const jobEnd = schedule.endTime;
+        
+        if (nowTime >= jobStart && nowTime <= jobEnd) {
+            currentJob = job;
+            const jobDuration = jobEnd - jobStart;
+            const elapsed = nowTime - jobStart;
+            currentJobProgress = jobDuration > 0 ? elapsed / jobDuration : 0;
+            foundPosition = true;
+            break;
+        }
+    }
+    
+    if (foundPosition && currentJob) {
+        const jobRect = currentJob.getBoundingClientRect();
+        const leftPx = jobRect.left - containerRect.left + scrollLeft;
+        const rightPx = jobRect.right - containerRect.left + scrollLeft;
+        const jobWidth = rightPx - leftPx;
+        const posPx = leftPx + (currentJobProgress * jobWidth);
+        positionPercentage = (posPx / totalWidth) * 100;
+    } else {
+        // Find position in gaps or edges
+        const firstJob = jobs[0];
+        const lastJob = jobs[jobs.length - 1];
+        const firstJobId = firstJob.getAttribute('data-job-id');
+        const lastJobId = lastJob.getAttribute('data-job-id');
+        
+        if (!jobSchedule[firstJobId] || !jobSchedule[lastJobId]) {
+            marker.style.display = 'none';
+            return;
+        }
+        
+        const firstStart = jobSchedule[firstJobId].startTime;
+        const lastEnd = jobSchedule[lastJobId].endTime;
+        
+        const firstRect = firstJob.getBoundingClientRect();
+        const lastRect = lastJob.getBoundingClientRect();
+        
+        const firstLeftPx = firstRect.left - containerRect.left + scrollLeft;
+        const firstRightPx = firstRect.right - containerRect.left + scrollLeft;
+        const lastRightPx = lastRect.right - containerRect.left + scrollLeft;
+        
+        if (nowTime < firstStart) {
+            positionPercentage = (firstLeftPx / totalWidth) * 100;
+        } else if (nowTime > lastEnd) {
+            positionPercentage = (lastRightPx / totalWidth) * 100;
+        } else {
+            let gapFound = false;
+            for (let i = 0; i < jobs.length - 1; i++) {
+                const currentJobEl = jobs[i];
+                const nextJobEl = jobs[i + 1];
+                const currentId = currentJobEl.getAttribute('data-job-id');
+                const nextId = nextJobEl.getAttribute('data-job-id');
+                
+                if (!jobSchedule[currentId] || !jobSchedule[nextId]) continue;
+                
+                const currentEnd = jobSchedule[currentId].endTime;
+                const nextStart = jobSchedule[nextId].startTime;
+                
+                if (nowTime > currentEnd && nowTime < nextStart) {
+                    const currentRect = currentJobEl.getBoundingClientRect();
+                    const nextRect = nextJobEl.getBoundingClientRect();
+                    
+                    const currentRightPx = currentRect.right - containerRect.left + scrollLeft;
+                    const nextLeftPx = nextRect.left - containerRect.left + scrollLeft;
+                    
+                    const gapStart = currentEnd;
+                    const gapEnd = nextStart;
+                    const gapDuration = gapEnd - gapStart;
+                    const gapElapsed = nowTime - gapStart;
+                    const gapProgress = gapDuration > 0 ? gapElapsed / gapDuration : 0;
+                    
+                    const posPx = currentRightPx + (gapProgress * (nextLeftPx - currentRightPx));
+                    positionPercentage = (posPx / totalWidth) * 100;
+                    gapFound = true;
+                    break;
+                }
+            }
+            
+            if (!gapFound) {
+                const totalDuration = lastEnd - firstStart;
+                let progress = (nowTime - firstStart) / totalDuration;
+                progress = Math.max(0, Math.min(1, progress));
+                const posPx = firstLeftPx + (progress * (lastRightPx - firstLeftPx));
+                positionPercentage = (posPx / totalWidth) * 100;
+            }
+        }
+    }
+    
+    positionPercentage = Math.max(0.5, Math.min(99.5, positionPercentage));
+    
+    nowIndicatorPositions[timeline.id] = {
+        position: positionPercentage,
+        time: timeString,
+        jobs: jobs.length,
+        foundPosition: foundPosition,
+        totalWidth: totalWidth,
+        scrollLeft: scrollLeft
+    };
+    
+    // Position marker
     marker.style.cssText = `
         position: absolute !important;
         top: 0 !important;
         height: 100% !important;
         width: 2px !important;
         background: #e74c3c !important;
-        transform: translateX(-50%) !important;
-        z-index: 6 !important;
+        z-index: 10 !important;
         pointer-events: none !important;
         display: block !important;
         left: ${positionPercentage}% !important;
+        transition: left 0.3s ease !important;
     `;
     
-    // Update label
+    // Label
     let label = marker.querySelector('.ruler-now-label');
     if (!label) {
         label = document.createElement('span');
@@ -417,22 +416,31 @@ function updateNowIndicatorPosition(timeline) {
     
     label.style.cssText = `
         position: absolute !important;
-        top: -16px !important;
+        bottom: 100% !important;
         left: 50% !important;
         transform: translateX(-50%) !important;
         font-size: 8px !important;
         font-weight: 700 !important;
         color: #e74c3c !important;
-        background: white !important;
-        padding: 0 8px !important;
-        border-radius: 3px !important;
+        background: rgba(255,255,255,0.95) !important;
+        padding: 2px 8px !important;
+        border-radius: 4px !important;
         white-space: nowrap !important;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.1) !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.15) !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
         display: block !important;
+        margin-bottom: 2px !important;
+        border: 1px solid rgba(231, 76, 60, 0.3) !important;
+        pointer-events: none !important;
+        background: #fff !important;
+        z-index: 11 !important;
     `;
-    label.textContent = timeString;
+    label.textContent = `🔴 NOW >> ${timeString}`;
 }
+
+// ============================================================
+// INDICATOR MANAGEMENT
+// ============================================================
 
 function updateAllNowIndicators() {
     document.querySelectorAll('.timeline').forEach(timeline => {
@@ -441,22 +449,60 @@ function updateAllNowIndicators() {
 }
 
 function initializeNowIndicators() {
-    // Clear any existing interval
     if (nowIndicatorInterval) {
         clearInterval(nowIndicatorInterval);
         nowIndicatorInterval = null;
     }
     
-    // Update once with a small delay to ensure DOM is ready
     setTimeout(() => {
         updateAllNowIndicators();
     }, 500);
     
-    // Update every 30 seconds
-    nowIndicatorInterval = setInterval(updateAllNowIndicators, 30000);
+    nowIndicatorInterval = setInterval(updateAllNowIndicators, 5000);
 }
 
-// Debug function
+function setupNowIndicatorPersistence() {
+    if (nowIndicatorInterval) {
+        clearInterval(nowIndicatorInterval);
+    }
+    
+    nowIndicatorInterval = setInterval(updateAllNowIndicators, 5000);
+    
+    document.querySelectorAll('.timeline-container').forEach(container => {
+        container.addEventListener('scroll', function() {
+            clearTimeout(this._scrollTimeout);
+            this._scrollTimeout = setTimeout(() => {
+                const timeline = this.querySelector('.timeline');
+                if (timeline) {
+                    updateNowIndicatorPosition(timeline);
+                }
+            }, 50);
+        }, { passive: true });
+    });
+    
+    window.addEventListener('resize', function() {
+        clearTimeout(this._resizeTimeout);
+        this._resizeTimeout = setTimeout(updateAllNowIndicators, 100);
+    });
+}
+
+function setupResizeObserver() {
+    if (window.ResizeObserver) {
+        const resizeObserver = new ResizeObserver(() => {
+            updateAllNowIndicators();
+        });
+        document.querySelectorAll('.timeline-container').forEach(container => {
+            resizeObserver.observe(container);
+        });
+        return resizeObserver;
+    }
+    return null;
+}
+
+// ============================================================
+// DEBUG FUNCTIONS
+// ============================================================
+
 function debugNowIndicators() {
     console.log('=== Now Indicator Debug ===');
     for (const [timelineId, data] of Object.entries(nowIndicatorPositions)) {
@@ -464,10 +510,57 @@ function debugNowIndicators() {
     }
     console.log('============================');
 }
-window.debugNowIndicators = debugNowIndicators;
+
+function debugRulerAlignment(timelineId) {
+    const timeline = document.getElementById(timelineId);
+    if (!timeline) {
+        console.log(`Timeline ${timelineId} not found`);
+        return;
+    }
+    
+    const container = timeline.closest('.timeline-container');
+    if (!container) {
+        console.log('Container not found');
+        return;
+    }
+    
+    const ruler = container.querySelector('.timeline-ruler');
+    if (!ruler) {
+        console.log('Ruler not found');
+        return;
+    }
+    
+    const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+    const containerRect = container.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft || 0;
+    const totalWidth = Math.max(ruler.offsetWidth, timeline.scrollWidth, 800);
+    
+    console.log(`=== ${timelineId} Alignment Debug ===`);
+    console.log(`totalWidth: ${totalWidth}`);
+    console.log(`ruler width: ${ruler.offsetWidth}`);
+    console.log(`timeline.scrollWidth: ${timeline.scrollWidth}`);
+    console.log(`scrollLeft: ${scrollLeft}`);
+    console.log(`jobs: ${jobs.length}`);
+    
+    jobs.forEach((job, index) => {
+        const jobRect = job.getBoundingClientRect();
+        const leftPx = jobRect.left - containerRect.left + scrollLeft;
+        const rightPx = jobRect.right - containerRect.left + scrollLeft;
+        const leftPercent = (leftPx / totalWidth) * 100;
+        const rightPercent = (rightPx / totalWidth) * 100;
+        console.log(`  Job ${index}: left=${leftPercent.toFixed(2)}%, right=${rightPercent.toFixed(2)}%`);
+    });
+    
+    const marker = ruler.querySelector('.ruler-now-marker');
+    if (marker) {
+        const markerLeft = parseFloat(marker.style.left);
+        console.log(`Marker position: ${markerLeft}%`);
+    }
+    console.log('===============================');
+}
 
 // ============================================================
-// SCALE TIMELINE - Independent zoom per timeline
+// SCALE TIMELINE
 // ============================================================
 
 function scaleTimeline(timelineId) {
@@ -483,7 +576,6 @@ function scaleTimeline(timelineId) {
         return;
     }
     
-    // Separate printed and active jobs
     const printedJobs = [];
     const activeJobs = [];
     
@@ -495,7 +587,6 @@ function scaleTimeline(timelineId) {
         }
     });
     
-    // Calculate durations for active jobs only
     const jobDurations = [];
     let minDuration = Infinity;
     let maxDuration = 0;
@@ -508,7 +599,6 @@ function scaleTimeline(timelineId) {
         if (duration < minDuration) minDuration = duration;
     });
     
-    // If no active jobs, just style printed jobs with fixed width
     if (activeJobs.length === 0) {
         printedJobs.forEach(job => {
             let width = 100 * currentZoomLevel;
@@ -539,7 +629,6 @@ function scaleTimeline(timelineId) {
         applyJobStyle(job, width);
     });
     
-    // Generate ruler if we have schedule data
     let hasSchedule = false;
     let firstStartTime = Infinity;
     let lastEndTime = 0;
@@ -682,8 +771,23 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
         isPrinted: false
     };
     
+    let validInsertBefore = null;
     if (insertBeforeElement) {
-        timeline.insertBefore(jobElement, insertBeforeElement);
+        if (insertBeforeElement.parentElement === timeline) {
+            validInsertBefore = insertBeforeElement;
+        } else {
+            const jobIdToInsertBefore = insertBeforeElement.getAttribute('data-job-id');
+            if (jobIdToInsertBefore) {
+                const foundElement = timeline.querySelector(`.job[data-job-id="${jobIdToInsertBefore}"]`);
+                if (foundElement && foundElement.parentElement === timeline) {
+                    validInsertBefore = foundElement;
+                }
+            }
+        }
+    }
+    
+    if (validInsertBefore) {
+        timeline.insertBefore(jobElement, validInsertBefore);
     } else {
         const firstPrinted = timeline.querySelector('.job.job-printed');
         if (firstPrinted) {
@@ -702,10 +806,6 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
     applySmartZoom();
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
 }
-
-// ============================================================
-// HANDLE FEED TO TIMELINE
-// ============================================================
 
 function handleFeedToTimeline(jobId, timeline, e) {
     const existingJobOnTimeline = document.querySelector(`.job[data-job-id="${jobId}"]`);
@@ -735,26 +835,42 @@ function handleFeedToTimeline(jobId, timeline, e) {
     if (jobs.length > 0) {
         const afterElement = getDragAfterElement(timeline, e.clientX);
         if (afterElement) {
-            insertBeforeElement = afterElement;
-            const insertIndex = Array.from(timeline.children).indexOf(afterElement);
-            const prevJob = insertIndex > 0 ? timeline.children[insertIndex - 1] : null;
-            if (prevJob && prevJob.classList.contains('job') && !prevJob.classList.contains('job-printed')) {
-                const prevJobId = prevJob.getAttribute('data-job-id');
-                newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
+            if (afterElement.parentElement === timeline) {
+                insertBeforeElement = afterElement;
             } else {
-                const firstPrinted = timeline.querySelector('.job.job-printed');
-                if (firstPrinted) {
-                    const printedJobs = timeline.querySelectorAll('.job.job-printed');
-                    const lastPrinted = printedJobs[printedJobs.length - 1];
-                    if (lastPrinted) {
-                        const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-                        newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
+                const jobIdToInsertBefore = afterElement.getAttribute('data-job-id');
+                if (jobIdToInsertBefore) {
+                    const foundElement = timeline.querySelector(`.job[data-job-id="${jobIdToInsertBefore}"]`);
+                    if (foundElement && foundElement.parentElement === timeline) {
+                        insertBeforeElement = foundElement;
+                    }
+                }
+            }
+            
+            if (insertBeforeElement) {
+                const insertIndex = Array.from(timeline.children).indexOf(insertBeforeElement);
+                const prevJob = insertIndex > 0 ? timeline.children[insertIndex - 1] : null;
+                if (prevJob && prevJob.classList.contains('job') && !prevJob.classList.contains('job-printed')) {
+                    const prevJobId = prevJob.getAttribute('data-job-id');
+                    newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
+                } else {
+                    const firstPrinted = timeline.querySelector('.job.job-printed');
+                    if (firstPrinted) {
+                        const printedJobs = timeline.querySelectorAll('.job.job-printed');
+                        const lastPrinted = printedJobs[printedJobs.length - 1];
+                        if (lastPrinted) {
+                            const lastPrintedId = lastPrinted.getAttribute('data-job-id');
+                            newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
+                        } else {
+                            newStartTime = new Date().getTime();
+                        }
                     } else {
                         newStartTime = new Date().getTime();
                     }
-                } else {
-                    newStartTime = new Date().getTime();
                 }
+            } else {
+                const lastJobId = jobs[jobs.length - 1].getAttribute('data-job-id');
+                newStartTime = jobSchedule[lastJobId]?.endTime || new Date().getTime();
             }
         } else {
             const lastJobId = jobs[jobs.length - 1].getAttribute('data-job-id');
@@ -782,14 +898,22 @@ function handleFeedToTimeline(jobId, timeline, e) {
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
 }
 
-// ============================================================
-// HANDLE JOB REORDER
-// ============================================================
-
 function handleJobReorder(jobId, targetTimeline, e) {
     const oldTimeline = draggedElement.parentElement;
     const afterElement = getDragAfterElement(targetTimeline, e.clientX);
     let insertBeforeElement = null;
+    
+    if (afterElement && afterElement.parentElement === targetTimeline) {
+        insertBeforeElement = afterElement;
+    } else if (afterElement) {
+        const jobIdToInsertBefore = afterElement.getAttribute('data-job-id');
+        if (jobIdToInsertBefore) {
+            const foundElement = targetTimeline.querySelector(`.job[data-job-id="${jobIdToInsertBefore}"]`);
+            if (foundElement && foundElement.parentElement === targetTimeline) {
+                insertBeforeElement = foundElement;
+            }
+        }
+    }
     
     draggedElement.remove();
     
@@ -801,9 +925,8 @@ function handleJobReorder(jobId, targetTimeline, e) {
         plDatabase[jobId].machine = machineNumber;
     }
     
-    if (afterElement) {
-        insertBeforeElement = afterElement;
-        targetTimeline.insertBefore(draggedElement, afterElement);
+    if (insertBeforeElement && insertBeforeElement.parentElement === targetTimeline) {
+        targetTimeline.insertBefore(draggedElement, insertBeforeElement);
     } else {
         const firstPrinted = targetTimeline.querySelector('.job.job-printed');
         if (firstPrinted) {
@@ -830,10 +953,6 @@ function handleJobReorder(jobId, targetTimeline, e) {
     applySmartZoom();
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
 }
-
-// ============================================================
-// RETURN JOB TO FEED
-// ============================================================
 
 function returnJobToFeed(jobElement) {
     const jobId = jobElement.getAttribute('data-job-id');
@@ -1320,7 +1439,6 @@ function applySmartZoom() {
     document.querySelectorAll('.timeline').forEach(timeline => {
         scaleTimeline(timeline.id);
     });
-    // Recalculate now indicator after zoom
     updateAllNowIndicators();
     setTimeout(() => updateAllTimelineScrollPositions(), 200);
 }
@@ -1353,12 +1471,13 @@ function showZoomIndicator(message) {
 // COMPLETED JOBS HANDLING
 // ============================================================
 
+// Update updateCompletedJobs to not regenerate the ruler unnecessarily
 function updateCompletedJobs() {
     const now = new Date().getTime();
+    let hasChanges = false;
     
     document.querySelectorAll('.timeline').forEach(timeline => {
         const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
-        let completedJobs = [];
         
         jobs.forEach(job => {
             const jobId = job.getAttribute('data-job-id');
@@ -1374,7 +1493,7 @@ function updateCompletedJobs() {
                     statusBadge.textContent = 'Complete';
                     statusBadge.style.color = '#95a5a6';
                 }
-                completedJobs.push(job);
+                hasChanges = true;
             }
         });
         
@@ -1385,13 +1504,141 @@ function updateCompletedJobs() {
                 const jobId = job.getAttribute('data-job-id');
                 delete jobSchedule[jobId];
                 job.remove();
+                hasChanges = true;
             });
         }
         
-        sortPrintedJobs(timeline);
-        updateMachineStatus(timeline.closest('.machine'));
-        updateStatistics();
+        if (hasChanges) {
+            sortPrintedJobs(timeline);
+            // Only regenerate ruler if there were changes
+            const container = timeline.closest('.timeline-container');
+            if (container) {
+                container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+                generateTimelineRuler(timeline);
+            }
+            updateMachineStatus(timeline.closest('.machine'));
+        }
     });
+    
+    if (hasChanges) {
+        updateStatistics();
+        updateAllNowIndicators();
+    }
+}
+
+// Update scaleTimeline to check cache before regenerating
+function scaleTimeline(timelineId) {
+    const timeline = document.getElementById(timelineId);
+    if (!timeline) return;
+    
+    const jobs = timeline.querySelectorAll('.job');
+    if (jobs.length === 0) {
+        const container = timeline.closest('.timeline-container');
+        if (container) {
+            container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+            // Clear cache for this timeline
+            delete timelineStateCache[timelineId];
+        }
+        return;
+    }
+    
+    const printedJobs = [];
+    const activeJobs = [];
+    
+    jobs.forEach(job => {
+        if (job.classList.contains('job-printed')) {
+            printedJobs.push(job);
+        } else {
+            activeJobs.push(job);
+        }
+    });
+    
+    const jobDurations = [];
+    let minDuration = Infinity;
+    let maxDuration = 0;
+    
+    activeJobs.forEach(job => {
+        const jobId = job.getAttribute('data-job-id');
+        const duration = calculateJobDuration(jobDatabase[jobId], jobId);
+        jobDurations.push({ job, duration, jobId });
+        if (duration > maxDuration) maxDuration = duration;
+        if (duration < minDuration) minDuration = duration;
+    });
+    
+    if (activeJobs.length === 0) {
+        printedJobs.forEach(job => {
+            let width = 100 * currentZoomLevel;
+            width = Math.max(80, Math.min(250, width));
+            applyJobStyle(job, width);
+        });
+        // Clear cache since job layout changed
+        delete timelineStateCache[timelineId];
+        return;
+    }
+    
+    const MIN_JOB_WIDTH = 80;
+    const MAX_JOB_WIDTH = 600;
+    const MIN_DURATION_FOR_SCALING = 1;
+    
+    const effectiveMinDuration = Math.max(minDuration, MIN_DURATION_FOR_SCALING);
+    let pixelsPerMinute = MIN_JOB_WIDTH / effectiveMinDuration;
+    pixelsPerMinute = pixelsPerMinute * currentZoomLevel;
+    pixelsPerMinute = Math.max(0.5, Math.min(20, pixelsPerMinute));
+    
+    // Check if any job widths changed significantly
+    let widthsChanged = false;
+    jobDurations.forEach(({ job, duration }) => {
+        let width = duration * pixelsPerMinute;
+        width = Math.max(MIN_JOB_WIDTH * 0.8, Math.min(MAX_JOB_WIDTH * 1.2, width));
+        const currentWidth = parseFloat(job.style.width) || 0;
+        if (Math.abs(currentWidth - width) > 5) {
+            widthsChanged = true;
+        }
+        applyJobStyle(job, width);
+    });
+    
+    printedJobs.forEach(job => {
+        let width = 100 * currentZoomLevel;
+        width = Math.max(80, Math.min(250, width));
+        applyJobStyle(job, width);
+    });
+    
+    // Only regenerate ruler if widths actually changed
+    if (widthsChanged) {
+        delete timelineStateCache[timelineId];
+    }
+    
+    let hasSchedule = false;
+    let firstStartTime = Infinity;
+    let lastEndTime = 0;
+    
+    activeJobs.forEach(job => {
+        const jobId = job.getAttribute('data-job-id');
+        if (jobSchedule[jobId]) {
+            hasSchedule = true;
+            if (jobSchedule[jobId].startTime < firstStartTime) {
+                firstStartTime = jobSchedule[jobId].startTime;
+            }
+            if (jobSchedule[jobId].endTime > lastEndTime) {
+                lastEndTime = jobSchedule[jobId].endTime;
+            }
+        }
+    });
+    
+    if (hasSchedule && firstStartTime !== Infinity && lastEndTime > 0) {
+        // Check if we already have a ruler and if it's valid
+        const container = timeline.closest('.timeline-container');
+        if (container) {
+            const existingRuler = container.querySelector('.timeline-ruler');
+            if (!existingRuler || widthsChanged) {
+                // Remove existing ruler if it's outdated
+                if (existingRuler) existingRuler.remove();
+                const existingHeader = container.querySelector('.timeline-date-header');
+                if (existingHeader) existingHeader.remove();
+                generateTimelineRuler(timeline);
+            }
+        }
+    }
 }
 
 // ============================================================
@@ -1415,4 +1662,10 @@ window.sortPrintedJobs = sortPrintedJobs;
 window.updateNowIndicatorPosition = updateNowIndicatorPosition;
 window.updateAllNowIndicators = updateAllNowIndicators;
 window.initializeNowIndicators = initializeNowIndicators;
+window.setupNowIndicatorPersistence = setupNowIndicatorPersistence;
+window.setupResizeObserver = setupResizeObserver;
 window.debugNowIndicators = debugNowIndicators;
+window.debugRulerAlignment = debugRulerAlignment;
+window.nowIndicatorPositions = nowIndicatorPositions;
+
+console.log('✅ timeline.js loaded - Now indicator will track job positions accurately');
