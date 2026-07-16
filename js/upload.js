@@ -1,4 +1,4 @@
-// script-upload.js - TRUE BULK UPLOAD (SUPER FAST)
+// script-upload.js - CLEAN WORKING VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -258,7 +258,6 @@ function setupExcelUploads() {
         uploadBtnAW.parentNode.replaceChild(newBtn, uploadBtnAW);
         newBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            e.stopPropagation();
             fileInputAW.click();
         });
         fileInputAW.addEventListener('change', function(e) {
@@ -280,7 +279,6 @@ function setupExcelUploads() {
         
         newBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            e.stopPropagation();
             fileInputPL.click();
         });
         
@@ -451,10 +449,10 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// HANDLE PL UPLOAD - TRUE BULK (SUPER FAST)
+// HANDLE PL UPLOAD - CLEAN AND FAST
 // ============================================================
 async function handlePLUpload(file) {
-    console.log('⚡ BULK PL UPLOAD STARTED:', file.name);
+    console.log('⚡ PL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 10);
     
     const reader = new FileReader();
@@ -484,10 +482,51 @@ async function handlePLUpload(file) {
             console.log(`📊 Processing ${rows.length} rows...`);
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 20);
             
-            // Build ALL data in arrays for bulk insert
+            // ============================================
+            // STEP 1: CLEAR ALL EXISTING DATA
+            // ============================================
+            const client = initSupabase();
+            const startTime = Date.now();
+            
+            console.log('🧹 Clearing existing data...');
+            showUploadProgress('🧹 Clearing existing data...', 15);
+            
+            const existingJobs = await supabaseLoadAllJobs();
+            if (existingJobs && existingJobs.length > 0) {
+                for (let i = 0; i < existingJobs.length; i += 500) {
+                    const batch = existingJobs.slice(i, i + 500);
+                    const ids = batch.map(j => j.job_id);
+                    await client.from('jobs').delete().in('job_id', ids);
+                }
+                console.log(`🗑️ Deleted ${existingJobs.length} existing jobs`);
+            }
+            
+            const existingPL = await supabaseLoadAllPLData();
+            if (existingPL && existingPL.length > 0) {
+                for (let i = 0; i < existingPL.length; i += 500) {
+                    const batch = existingPL.slice(i, i + 500);
+                    const ids = batch.map(p => p.job_id);
+                    await client.from('pl_database').delete().in('job_id', ids);
+                }
+                console.log(`🗑️ Deleted ${existingPL.length} existing PL records`);
+            }
+            
+            const existingAW = await supabaseLoadAllAWData();
+            if (existingAW && existingAW.length > 0) {
+                for (let i = 0; i < existingAW.length; i += 500) {
+                    const batch = existingAW.slice(i, i + 500);
+                    const ids = batch.map(a => a.job_number);
+                    await client.from('aw_data').delete().in('job_number', ids);
+                }
+                console.log(`🗑️ Deleted ${existingAW.length} existing AW records`);
+            }
+            
+            // ============================================
+            // STEP 2: BUILD DATA FROM FILE
+            // ============================================
+            const savedAWData = { ...awData };
             const jobsToSave = [];
             const plToSave = [];
-            const savedAWData = { ...awData };
             let jobsAdded = 0;
             let jobsWithAW = 0;
             
@@ -495,7 +534,6 @@ async function handlePLUpload(file) {
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
             
-            // Process all rows
             for (const row of rows) {
                 if (!row || row.length < 25) continue;
                 
@@ -637,7 +675,7 @@ async function handlePLUpload(file) {
                     estimatedDate: estimatedDate ? estimatedDate.toISOString() : null
                 };
                 
-                // Add to bulk arrays - ONLY columns that exist in your DB
+                // Add to bulk arrays
                 jobsToSave.push({
                     job_id: jobId,
                     job_number: jobNumber,
@@ -716,36 +754,17 @@ async function handlePLUpload(file) {
             
             console.log(`✅ ${jobsAdded} jobs prepared (${jobsWithAW} with AW data)`);
             
-            // ============================================================
-            // TRUE BULK UPLOAD - ALL IN ONE API CALL
-            // ============================================================
-            const client = initSupabase();
-            const startTime = Date.now();
-            
-            showUploadProgress(`💾 Uploading ${jobsAdded} jobs...`, 40);
-            
-            // STEP 1: Delete existing data (fast)
-            const existingJobs = await supabaseLoadAllJobs();
-            if (existingJobs && existingJobs.length > 0) {
-                for (let i = 0; i < existingJobs.length; i += 500) {
-                    const batch = existingJobs.slice(i, i + 500);
-                    const ids = batch.map(j => j.job_id);
-                    await client.from('jobs').delete().in('job_id', ids);
-                }
-                console.log(`🗑️ Deleted ${existingJobs.length} existing jobs`);
+            if (jobsToSave.length === 0) {
+                alert('No valid jobs found in the file!');
+                hideUploadProgress();
+                return;
             }
             
-            const existingPL = await supabaseLoadAllPLData();
-            if (existingPL && existingPL.length > 0) {
-                for (let i = 0; i < existingPL.length; i += 500) {
-                    const batch = existingPL.slice(i, i + 500);
-                    const ids = batch.map(p => p.job_id);
-                    await client.from('pl_database').delete().in('job_id', ids);
-                }
-                console.log(`🗑️ Deleted ${existingPL.length} existing PL records`);
-            }
+            // ============================================
+            // STEP 3: BULK INSERT
+            // ============================================
+            showUploadProgress(`💾 Uploading ${jobsToSave.length} jobs...`, 40);
             
-            // STEP 2: BULK INSERT - ALL JOBS IN ONE CALL (split into 500 per call for safety)
             const BATCH_SIZE = 500;
             let saved = 0;
             
@@ -754,35 +773,45 @@ async function handlePLUpload(file) {
                 const batch = jobsToSave.slice(i, i + BATCH_SIZE);
                 const { error } = await client.from('jobs').insert(batch);
                 if (error) {
-                    console.warn('⚠️ Batch insert error, trying upsert:', error);
-                    // If insert fails, try upsert
-                    const { error: upsertError } = await client.from('jobs').upsert(batch, { onConflict: 'job_id' });
-                    if (upsertError) console.error('❌ Upsert error:', upsertError);
+                    console.warn('⚠️ Batch insert error:', error.message);
+                    // If insert fails, try upsert one by one for this batch
+                    for (const job of batch) {
+                        try {
+                            await client.from('jobs').upsert(job, { onConflict: 'job_id' });
+                            saved++;
+                        } catch (e) {
+                            console.warn(`❌ Failed: ${job.job_number}`);
+                        }
+                    }
+                } else {
+                    saved += batch.length;
                 }
-                saved += batch.length;
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
                 const percent = Math.min(90, 40 + Math.round((saved / jobsToSave.length) * 50));
                 showUploadProgress(`📊 ${saved}/${jobsToSave.length} jobs (${elapsed}s)`, percent);
                 console.log(`✅ ${saved}/${jobsToSave.length} jobs inserted (${elapsed}s)`);
             }
             
-            // Insert PL data in batches of 500
+            // Insert PL data in batches
             for (let i = 0; i < plToSave.length; i += BATCH_SIZE) {
                 const batch = plToSave.slice(i, i + BATCH_SIZE);
                 const { error } = await client.from('pl_database').insert(batch);
                 if (error) {
-                    console.warn('⚠️ PL batch insert error:', error);
-                    const { error: upsertError } = await client.from('pl_database').upsert(batch, { onConflict: 'job_id' });
-                    if (upsertError) console.error('❌ PL upsert error:', upsertError);
+                    console.warn('⚠️ PL batch insert error:', error.message);
+                    for (const pl of batch) {
+                        try {
+                            await client.from('pl_database').upsert(pl, { onConflict: 'job_id' });
+                        } catch (e) {}
+                    }
                 }
             }
             
             const totalTime = Math.round((Date.now() - startTime) / 1000);
             console.log(`✅ All ${saved} jobs saved in ${totalTime}s`);
             
-            // ============================================================
-            // RELOAD AND UPDATE UI
-            // ============================================================
+            // ============================================
+            // STEP 4: RELOAD AND UPDATE UI
+            // ============================================
             showUploadProgress('🔄 Reloading data...', 96);
             await supabaseSyncAllData();
             
