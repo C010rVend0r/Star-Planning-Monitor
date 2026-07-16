@@ -1,4 +1,4 @@
-// script-upload.js - MULTI-BATCH SQL INSERT VERSION
+// script-upload.js - REST API BULK INSERT VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -220,18 +220,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// ESCAPE SQL STRING
+// REST API BULK INSERT - USES SUPABASE NATIVE BULK INSERT
 // ============================================================
-function escapeSQL(str) {
-    if (str === null || str === undefined) return '';
-    return String(str).replace(/'/g, "''");
-}
-
-// ============================================================
-// MULTI-BATCH SQL INSERT - WORKS EVERY TIME
-// ============================================================
-async function multiBatchSQLUpload(file) {
-    console.log('🔥 MULTI-BATCH SQL UPLOAD STARTED:', file.name);
+async function restBulkUpload(file) {
+    console.log('🔥 REST API BULK UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -396,114 +388,69 @@ async function multiBatchSQLUpload(file) {
             }
             
             // ============================================
-            // BUILD VALUE STRINGS
+            // BULK INSERT VIA REST API
             // ============================================
-            console.log(`📤 Building SQL for ${uniqueJobs.length} jobs...`);
-            showUploadProgress(`📤 Building SQL...`, 30);
+            console.log(`📤 Uploading ${uniqueJobs.length} jobs via REST API...`);
+            showUploadProgress(`📤 Uploading ${uniqueJobs.length} jobs...`, 20);
             
-            function buildValueString(job) {
-                const status_date = job.status_date || new Date(1900, 0, 1).toISOString();
-                return `(
-                    '${escapeSQL(job.job_id)}',
-                    '${escapeSQL(job.job_number)}',
-                    '${escapeSQL(job.name)}',
-                    '${escapeSQL(job.status)}',
-                    '${escapeSQL(job.aw_status)}',
-                    '${escapeSQL(job.raw_aw_status)}',
-                    '${escapeSQL(job.planning_status)}',
-                    '${escapeSQL(status_date)}',
-                    ${job.setup || 120},
-                    ${job.quantity || 0},
-                    '${escapeSQL(job.machine || '')}',
-                    ${job.is_complete || false},
-                    ${job.is_planned || false},
-                    ${job.is_unplanned || false},
-                    ${job.is_deleted || false},
-                    ${job.is_hold || false},
-                    '${escapeSQL(job.new_plat || '')}',
-                    '${escapeSQL(job.material_availability || '')}',
-                    '${escapeSQL(job.delivered || '')}',
-                    '${escapeSQL(job.delivered2 || '')}',
-                    '${escapeSQL(job.cutting_method || '')}',
-                    '${escapeSQL(job.film || '')}',
-                    '${escapeSQL(job.thickness || '')}',
-                    '${escapeSQL(job.material_type || '')}',
-                    ${job.machine_speed || 200},
-                    ${job.meters || 0},
-                    ${job.setup_time || 120},
-                    ${job.required_time || 0},
-                    ${job.planned_speed || 200},
-                    ${job.actual_speed || 200},
-                    ${job.planned_setup || 120},
-                    ${job.actual_setup || 0},
-                    ${job.downtime || 0},
-                    ${job.printing_duration || 0}
-                )`;
-            }
-            
-            // ============================================
-            // INSERT IN BATCHES OF 100 (AVOIDS LIMITS)
-            // ============================================
             const BATCH_SIZE = 100;
             let totalInserted = 0;
             
             for (let i = 0; i < uniqueJobs.length; i += BATCH_SIZE) {
                 const batch = uniqueJobs.slice(i, i + BATCH_SIZE);
-                const values = batch.map(job => buildValueString(job)).join(',\n');
-                
-                const sql = `
-                    INSERT INTO jobs (
-                        job_id, job_number, name, status, aw_status, raw_aw_status,
-                        planning_status, status_date, setup, quantity, machine,
-                        is_complete, is_planned, is_unplanned, is_deleted, is_hold,
-                        new_plat, material_availability, delivered, delivered2,
-                        cutting_method, film, thickness, material_type,
-                        machine_speed, meters, setup_time, required_time,
-                        planned_speed, actual_speed, planned_setup, actual_setup,
-                        downtime, printing_duration
-                    ) VALUES
-                    ${values}
-                    ON CONFLICT (job_number) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        status = EXCLUDED.status,
-                        planning_status = EXCLUDED.planning_status,
-                        setup = EXCLUDED.setup,
-                        quantity = EXCLUDED.quantity,
-                        machine = EXCLUDED.machine,
-                        new_plat = EXCLUDED.new_plat,
-                        material_availability = EXCLUDED.material_availability,
-                        delivered = EXCLUDED.delivered,
-                        delivered2 = EXCLUDED.delivered2,
-                        cutting_method = EXCLUDED.cutting_method,
-                        film = EXCLUDED.film,
-                        thickness = EXCLUDED.thickness,
-                        material_type = EXCLUDED.material_type,
-                        machine_speed = EXCLUDED.machine_speed,
-                        meters = EXCLUDED.meters,
-                        setup_time = EXCLUDED.setup_time,
-                        required_time = EXCLUDED.required_time,
-                        planned_speed = EXCLUDED.planned_speed,
-                        actual_speed = EXCLUDED.actual_speed,
-                        planned_setup = EXCLUDED.planned_setup,
-                        actual_setup = EXCLUDED.actual_setup,
-                        downtime = EXCLUDED.downtime,
-                        printing_duration = EXCLUDED.printing_duration
-                `;
                 
                 try {
-                    const { error: sqlError } = await client.rpc('exec_sql', { sql: sql });
-                    if (sqlError) {
-                        console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} failed:`, sqlError);
+                    // Use the Supabase client's insert with upsert
+                    const { data: inserted, error } = await client
+                        .from('jobs')
+                        .upsert(batch, { 
+                            onConflict: 'job_number',
+                            ignoreDuplicates: false 
+                        })
+                        .select('job_number');
+                    
+                    if (error) {
+                        console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, error.message);
+                        
+                        // Try individual inserts for this batch
+                        let individualSuccess = 0;
+                        for (const job of batch) {
+                            try {
+                                await client
+                                    .from('jobs')
+                                    .upsert(job, { onConflict: 'job_number' });
+                                individualSuccess++;
+                            } catch (e) {
+                                console.warn(`❌ Failed: ${job.job_number}`);
+                            }
+                        }
+                        totalInserted += individualSuccess;
+                        console.log(`✅ ${individualSuccess}/${batch.length} inserted individually`);
+                        
                     } else {
                         totalInserted += batch.length;
-                        const elapsed = Math.round((Date.now() - startTime) / 1000);
-                        const percent = Math.min(95, Math.round((totalInserted / uniqueJobs.length) * 100));
-                        showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
-                        console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs inserted (${elapsed}s)`);
+                        console.log(`✅ Batch ${Math.floor(i/BATCH_SIZE)+1} inserted ${batch.length} jobs`);
                     }
+                    
                 } catch (err) {
                     console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, err);
+                    // Try individual inserts
+                    for (const job of batch) {
+                        try {
+                            await client
+                                .from('jobs')
+                                .upsert(job, { onConflict: 'job_number' });
+                            totalInserted++;
+                        } catch (e) {
+                            console.warn(`❌ Failed: ${job.job_number}`);
+                        }
+                    }
                 }
+                
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                const percent = Math.min(95, Math.round((totalInserted / uniqueJobs.length) * 100));
+                showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
+                console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs uploaded (${elapsed}s)`);
             }
             
             // ============================================
@@ -529,8 +476,8 @@ async function multiBatchSQLUpload(file) {
             
             if (actualCount < uniqueJobs.length) {
                 console.warn(`⚠️ WARNING: Only ${actualCount} jobs in DB, expected ${uniqueJobs.length}`);
-                console.log('🔄 This may be due to Supabase row limits.');
                 console.log(`🔄 Missing: ${uniqueJobs.length - actualCount} jobs`);
+                console.log('🔄 Try increasing BATCH_SIZE to 50 or running again.');
             } else {
                 console.log('🎉 ALL JOBS UPLOADED SUCCESSFULLY!');
             }
@@ -781,7 +728,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - MULTI-BATCH SQL
+    // PL Upload - REST API BULK
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -799,7 +746,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                multiBatchSQLUpload(file);
+                restBulkUpload(file);
             }
             this.value = '';
         });
@@ -835,7 +782,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.multiBatchSQLUpload = multiBatchSQLUpload;
+window.restBulkUpload = restBulkUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
