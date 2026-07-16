@@ -8,10 +8,29 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
 });
 
-// In main.js - add to initializeApp() function
-
-function initializeApp() {
+// ============================================================
+// INITIALIZE APP - WITH SUPABASE
+// ============================================================
+async function initializeApp() {
     console.log('Initializing application...');
+    
+    // ============================================================
+    // STEP 1: Initialize Supabase and load data
+    // ============================================================
+    try {
+        console.log('🔄 Loading data from Supabase...');
+        const success = await supabaseSyncAllData();
+        if (success) {
+            console.log('✅ Data loaded successfully from Supabase');
+            showNotification('✅ Data loaded from database', 'success');
+        } else {
+            console.warn('⚠️ Using fallback data (Supabase unavailable)');
+            showNotification('⚠️ Using local data - Supabase unavailable', 'warning');
+        }
+    } catch (error) {
+        console.error('❌ Failed to load data from Supabase:', error);
+        showNotification('⚠️ Using local data - connection error', 'error');
+    }
     
     // Initialize time display
     updateTime();
@@ -57,18 +76,101 @@ function initializeApp() {
     // Initialize timeline rulers
     setTimeout(initializeTimelineRulers, 1000);
     
-    // ============================================================
-    // NEW: START UPLOAD STATUS MONITORING
-    // ============================================================
+    // Start upload status monitoring
     startUploadStatusMonitoring();
     
     // Update real-time clock
     updateRealTimeIndicator();
     setInterval(updateRealTimeIndicator, 1000);
     
+    // ============================================================
+    // STEP 2: Setup auto-save after data loads
+    // ============================================================
+    setupAutoSaveTriggers();
+    
     console.log('Application initialized successfully');
 }
 
+// ============================================================
+// AUTO-SAVE TRIGGERS
+// ============================================================
+function setupAutoSaveTriggers() {
+    console.log('🔄 Setting up auto-save triggers...');
+    
+    // Save when jobs are added/removed from timeline
+    const originalAddJob = window.addJobToTimelineWithSchedule;
+    if (originalAddJob) {
+        window.addJobToTimelineWithSchedule = function(...args) {
+            const result = originalAddJob.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    // Save when job is returned to feed
+    const originalReturnJob = window.returnJobToFeed;
+    if (originalReturnJob) {
+        window.returnJobToFeed = function(...args) {
+            const result = originalReturnJob.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    // Save when job details are saved from modal
+    const originalSaveJob = window.saveJobDetailsFromModal;
+    if (originalSaveJob) {
+        window.saveJobDetailsFromModal = function(...args) {
+            const result = originalSaveJob.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    // Save when job setup/quantity/speed is updated
+    const originalUpdateSetup = window.updateJobSetup;
+    if (originalUpdateSetup) {
+        window.updateJobSetup = function(...args) {
+            const result = originalUpdateSetup.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    const originalUpdateQuantity = window.updateJobQuantity;
+    if (originalUpdateQuantity) {
+        window.updateJobQuantity = function(...args) {
+            const result = originalUpdateQuantity.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    const originalUpdateSpeed = window.updateJobSpeed;
+    if (originalUpdateSpeed) {
+        window.updateJobSpeed = function(...args) {
+            const result = originalUpdateSpeed.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    // Save when PL status changes
+    const originalUpdatePLStatus = window.updateJobPLStatus;
+    if (originalUpdatePLStatus) {
+        window.updateJobPLStatus = function(...args) {
+            const result = originalUpdatePLStatus.apply(this, args);
+            scheduleAutoSave();
+            return result;
+        };
+    }
+    
+    console.log('✅ Auto-save triggers configured');
+}
+
+// ============================================================
+// MACHINE ELEMENTS
+// ============================================================
 function initializeMachineElements() {
     console.log('Initializing machine elements...');
     machineIds.forEach(machineId => {
@@ -94,7 +196,6 @@ function initializeTimelineRulers() {
 // ============================================================
 // EVENT LISTENERS
 // ============================================================
-
 function setupEventListeners() {
     console.log('Setting up event listeners...');
     
@@ -113,7 +214,7 @@ function setupEventListeners() {
     // Setup drag and drop
     setupDragAndDrop();
     
-    // Setup Excel uploads - make sure this runs
+    // Setup Excel uploads
     console.log('Calling setupExcelUploads...');
     setupExcelUploads();
     
@@ -177,7 +278,6 @@ function handleClickOutside(e) {
 function setupDragAndDrop() {
     console.log('Setting up drag and drop with enhanced features...');
     
-    // Track auto-scroll during drag
     let dragScrollInterval = null;
     let currentDragContainer = null;
     const SCROLL_SPEED = 20;
@@ -225,41 +325,33 @@ function setupDragAndDrop() {
         currentDragContainer = null;
     });
     
-    // Add drag over listeners to all timeline containers
     document.querySelectorAll('.timeline-container').forEach(container => {
         container.addEventListener('dragover', function(e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
             
-            // Auto-scroll logic
             const rect = this.getBoundingClientRect();
             const mouseX = e.clientX;
             
-            // Stop any existing scroll
             if (dragScrollInterval) {
                 clearInterval(dragScrollInterval);
                 dragScrollInterval = null;
             }
             
-            // Check if mouse is near edges
             if (mouseX < rect.left + SCROLL_MARGIN) {
-                // Scroll left
                 dragScrollInterval = setInterval(() => {
                     this.scrollLeft -= SCROLL_SPEED;
                 }, 16);
             } else if (mouseX > rect.right - SCROLL_MARGIN) {
-                // Scroll right
                 dragScrollInterval = setInterval(() => {
                     this.scrollLeft += SCROLL_SPEED;
                 }, 16);
             }
             
-            // Store current container for cleanup
             currentDragContainer = this;
         });
         
         container.addEventListener('dragleave', function(e) {
-            // Only stop scrolling if we're actually leaving the container
             if (!this.contains(e.relatedTarget)) {
                 if (dragScrollInterval) {
                     clearInterval(dragScrollInterval);
@@ -308,7 +400,6 @@ function setupDragAndDrop() {
         timeline.addEventListener('drop', function(e) {
             e.preventDefault();
             
-            // Stop auto-scroll
             if (dragScrollInterval) {
                 clearInterval(dragScrollInterval);
                 dragScrollInterval = null;
@@ -338,7 +429,6 @@ function setupDragAndDrop() {
                 });
                 dragOverElement = null;
                 
-                // Sort printed jobs to the left
                 sortPrintedJobs(this);
                 updateAllJobColors();
                 updateStatistics();
@@ -386,7 +476,6 @@ function getDragAfterElement(container, x) {
 }
 
 // main.js - Updated handleFeedToTimeline function
-
 function handleFeedToTimeline(jobId, timeline, e) {
     const existingJobOnTimeline = document.querySelector(`.job[data-job-id="${jobId}"]`);
     if (existingJobOnTimeline) {
@@ -400,10 +489,8 @@ function handleFeedToTimeline(jobId, timeline, e) {
     
     updateJobPLStatus(jobId, 'Planned');
     
-    // Get the machine number from the timeline ID
     const machineNumber = timeline.id.replace('timeline-', '');
     
-    // Update machine field in job data
     if (jobDatabase[jobId]) {
         jobDatabase[jobId].machine = machineNumber;
     }
@@ -411,21 +498,17 @@ function handleFeedToTimeline(jobId, timeline, e) {
         plDatabase[jobId].machine = machineNumber;
     }
     
-    // Get all active jobs (non-printed)
     const activeJobs = timeline.querySelectorAll('.job:not(.job-printed)');
     let newStartTime;
     let insertBeforeElement = null;
     
     if (activeJobs.length > 0) {
-        // Find where to insert based on mouse position
         const afterElement = getDragAfterElement(timeline, e.clientX);
         
         if (afterElement) {
-            // Insert before the afterElement
             insertBeforeElement = afterElement;
             const insertIndex = Array.from(timeline.children).indexOf(afterElement);
             
-            // Find the previous job (could be printed or active)
             let prevJob = null;
             for (let i = insertIndex - 1; i >= 0; i--) {
                 const child = timeline.children[i];
@@ -439,7 +522,6 @@ function handleFeedToTimeline(jobId, timeline, e) {
                 const prevJobId = prevJob.getAttribute('data-job-id');
                 newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
             } else {
-                // Insert at beginning - use current time or after last printed
                 const printedJobs = timeline.querySelectorAll('.job.job-printed');
                 if (printedJobs.length > 0) {
                     const lastPrinted = printedJobs[printedJobs.length - 1];
@@ -450,13 +532,11 @@ function handleFeedToTimeline(jobId, timeline, e) {
                 }
             }
         } else {
-            // Insert at the end
             const lastJob = activeJobs[activeJobs.length - 1];
             const lastJobId = lastJob.getAttribute('data-job-id');
             newStartTime = jobSchedule[lastJobId]?.endTime || new Date().getTime();
         }
     } else {
-        // No active jobs - check printed jobs
         const printedJobs = timeline.querySelectorAll('.job.job-printed');
         if (printedJobs.length > 0) {
             const lastPrinted = printedJobs[printedJobs.length - 1];
@@ -467,7 +547,6 @@ function handleFeedToTimeline(jobId, timeline, e) {
         }
     }
     
-    // Add job to timeline at the exact position
     addJobToTimelineWithSchedule(jobId, timeline.id, newStartTime, insertBeforeElement);
     rescheduleTimelineJobs(timeline.id);
     updateAllJobColors();
@@ -480,20 +559,16 @@ function handleFeedToTimeline(jobId, timeline, e) {
 }
 
 // main.js - Updated handleJobReorder function
-
 function handleJobReorder(jobId, targetTimeline, e) {
     const oldTimeline = draggedElement.parentElement;
     const afterElement = getDragAfterElement(targetTimeline, e.clientX);
     let insertBeforeElement = null;
     let newStartTime;
     
-    // Remove from old position
     draggedElement.remove();
     
-    // Get the machine number
     const machineNumber = targetTimeline.id.replace('timeline-', '');
     
-    // Update machine field
     if (jobDatabase[jobId]) {
         jobDatabase[jobId].machine = machineNumber;
     }
@@ -501,7 +576,6 @@ function handleJobReorder(jobId, targetTimeline, e) {
         plDatabase[jobId].machine = machineNumber;
     }
     
-    // Find insertion position
     const activeJobs = targetTimeline.querySelectorAll('.job:not(.job-printed)');
     
     if (afterElement) {
@@ -533,7 +607,6 @@ function handleJobReorder(jobId, targetTimeline, e) {
         
         targetTimeline.insertBefore(draggedElement, afterElement);
     } else {
-        // Insert at end before printed jobs
         const firstPrinted = targetTimeline.querySelector('.job.job-printed');
         if (firstPrinted) {
             targetTimeline.insertBefore(draggedElement, firstPrinted);
@@ -558,7 +631,6 @@ function handleJobReorder(jobId, targetTimeline, e) {
         }
     }
     
-    // Update schedule with new start time
     if (jobSchedule[jobId]) {
         const duration = (jobSchedule[jobId].endTime - jobSchedule[jobId].startTime);
         jobSchedule[jobId] = {
@@ -569,7 +641,6 @@ function handleJobReorder(jobId, targetTimeline, e) {
         };
     }
     
-    // Reschedule both timelines
     rescheduleTimelineJobs(oldTimeline.id);
     rescheduleTimelineJobs(targetTimeline.id);
     
@@ -595,6 +666,7 @@ window.handleJobReorder = handleJobReorder;
 window.checkJobOnTimeline = checkJobOnTimeline;
 window.getDragAfterElement = getDragAfterElement;
 window.initializeTimelineRulers = initializeTimelineRulers;
+window.setupAutoSaveTriggers = setupAutoSaveTriggers;
 
 console.log('%c=== Planning Monitor Loaded ===', 'font-size:16px;font-weight:bold;color:#3498db;');
 console.log('Available functions:');
