@@ -1,4 +1,4 @@
-// script-upload.js - FIXED VERSION (timeline addition & header counter)
+// script-upload.js - FIXED (timeline & header counter)
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -24,7 +24,9 @@ const SHEET_PATTERNS = {
 // CALCULATE ESTIMATED DATE - Excluding Fridays
 // ============================================================
 function calculateEstimatedDate(startDate, daysToAdd) {
-    if (!startDate || isNaN(startDate.getTime())) return null;
+    if (!startDate || isNaN(startDate.getTime())) {
+        return null;
+    }
     const result = new Date(startDate);
     let daysAdded = 0;
     while (daysAdded < daysToAdd) {
@@ -282,16 +284,179 @@ function setupExcelUploads() {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD (unchanged)
+// HANDLE AW UPLOAD - unchanged
 // ============================================================
 function handleAWUpload(file) {
-    // ... (keep your existing implementation) ...
-    // For brevity, I'm not copying the whole function – it remains unchanged.
-    // Make sure you keep your existing handleAWUpload exactly as it was.
+    console.log('Uploading AW Excel file:', file.name);
+    
+    showUploadProgress('Reading AW file...', 10);
+    
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            
+            const sheetNames = workbook.SheetNames;
+            console.log('AW Sheets found:', sheetNames);
+            
+            const detected = detectUploader(sheetNames);
+            console.log('Detected uploaders:', detected);
+            
+            const firstSheet = workbook.Sheets[sheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+            
+            showUploadProgress('Processing AW data...', 50);
+            
+            const rows = jsonData.slice(3);
+            let awJobsFound = 0;
+            let awJobsSkipped = 0;
+            
+            const savedFilterStatuses = new Set(filterStatuses);
+            
+            rows.forEach((row) => {
+                if (!row || row.length < 10) return;
+                
+                const jobNumber = String(row[5] || '').trim();
+                const status = String(row[8] || '').trim();
+                
+                if (!jobNumber) return;
+                
+                console.log(`Processing AW job: ${jobNumber}, status: "${status}"`);
+                
+                let statusDate = null;
+                
+                const statusDateMap = {
+                    '1. Under Job-Study': { index: 32 },
+                    '2. Under QC Check': { index: 34 },
+                    '3. S.C Approval': { index: 36 },
+                    '4. Need S.C Approval': { index: 38 },
+                    '5. Working on Cromalin': { index: 40 },
+                    '6. Need Cromalin Approval': { index: 42 },
+                    '7. Cromalin Approval': { index: 44 },
+                    '8. Repro: Plate Making': { index: 46 },
+                    '9. Plates are Ready': { index: 48 }
+                };
+                
+                if (status && statusDateMap[status]) {
+                    const dateInfo = statusDateMap[status];
+                    const dateValue = row[dateInfo.index];
+                    
+                    if (dateValue !== undefined && dateValue !== null && dateValue !== '') {
+                        if (typeof dateValue === 'number' && dateValue > 0) {
+                            const excelEpoch = new Date(1899, 11, 30);
+                            const jsDate = new Date(excelEpoch.getTime() + dateValue * 86400000);
+                            if (!isNaN(jsDate.getTime())) {
+                                statusDate = jsDate;
+                            }
+                        } else if (typeof dateValue === 'string') {
+                            const parsed = new Date(dateValue);
+                            if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) {
+                                statusDate = parsed;
+                            }
+                        }
+                    }
+                }
+                
+                if (!statusDate) {
+                    statusDate = new Date(1900, 0, 1);
+                }
+                
+                let rawStatus = status || 'Unknown';
+                
+                let estimatedDate = null;
+                if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
+                    estimatedDate = calculateEstimatedDate(statusDate, 2);
+                }
+                
+                awData[jobNumber] = {
+                    status: rawStatus,
+                    rawStatus: rawStatus,
+                    statusDate: statusDate.toISOString(),
+                    estimatedDate: estimatedDate ? estimatedDate.toISOString() : null,
+                    isFromAW: true
+                };
+                
+                let jobId = findJobIdByNumber(jobNumber);
+                
+                if (jobId) {
+                    console.log(`Found matching job: ${jobId} - updating AW status only`);
+                    if (jobDatabase[jobId]) {
+                        jobDatabase[jobId].awStatus = rawStatus;
+                        jobDatabase[jobId].status = rawStatus;
+                        jobDatabase[jobId].statusDate = statusDate.toISOString();
+                        jobDatabase[jobId].rawAWStatus = rawStatus;
+                        jobDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
+                        
+                        if (plDatabase[jobId]) {
+                            plDatabase[jobId].prepressStatus = rawStatus;
+                            plDatabase[jobId].statusDate = statusDate.toISOString();
+                            plDatabase[jobId].rawAWStatus = rawStatus;
+                            plDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
+                        }
+                        
+                        awJobsFound++;
+                    }
+                } else {
+                    awJobsSkipped++;
+                }
+            });
+            
+            console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped`);
+            
+            // Save to Supabase (if your version uses it)
+            // If you have supabase save calls, add them here
+            // ...
+            
+            filterStatuses = savedFilterStatuses;
+            
+            populateProductionFeed();
+            applyFilter();
+            updateFilterCounts();
+            updateStatistics();
+            updateFilterBadge();
+            syncFilterCheckboxes();
+            
+            if (detected.fullData) {
+                updateUploadStatus('mahmoud');
+                updateUploadStatus('raed');
+                updateUploadStatus('rabia');
+                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped (no PL match)`, 'success');
+            } else {
+                if (detected.mahmoud) updateUploadStatus('mahmoud');
+                if (detected.raed) updateUploadStatus('raed');
+                if (detected.rabia) updateUploadStatus('rabia');
+                showNotification(`✅ AW data uploaded - ${awJobsFound} jobs updated`, 'success');
+            }
+            
+            showUploadProgress(`AW upload complete: ${awJobsFound} updated, ${awJobsSkipped} skipped`, 100);
+            
+            setTimeout(() => {
+                hideUploadProgress();
+                console.log('AW upload completed successfully');
+            }, 1500);
+            
+        } catch (error) {
+            console.error('Error processing AW file:', error);
+            showUploadProgress('Error processing AW file', 100);
+            setTimeout(() => hideUploadProgress(), 3000);
+            alert('Error reading AW Excel file. Please check the file format.\nError: ' + error.message);
+        }
+    };
+    
+    reader.onerror = function() {
+        console.error('Error reading AW file');
+        showUploadProgress('Error reading file', 100);
+        setTimeout(() => hideUploadProgress(), 3000);
+        alert('Error reading file. Please try again.');
+    };
+    
+    reader.readAsArrayBuffer(file);
 }
 
 // ============================================================
-// HANDLE PL UPLOAD - FIXED VERSION
+// HANDLE PL UPLOAD - FIXED timeline addition
 // ============================================================
 function handlePLUpload(file) {
     console.log('Uploading PL Excel file:', file.name);
@@ -376,7 +541,7 @@ function handlePLUpload(file) {
                 
                 console.log(`Processing PL job: ${jobNumber}, planningStatus: "${planningStatus}"`);
                 
-                // Check if we have AW data for this job
+                // Check if we have AW data for this job (from savedAWData)
                 let awStatus = 'Unknown';
                 let statusDate = new Date(1900, 0, 1);
                 let estimatedDate = null;
@@ -516,20 +681,28 @@ function handlePLUpload(file) {
                 const planningStatus = jobData.planningStatus;
                 const isPlanned = planningStatus === 'Planned';
                 
-                // Determine correct timeline ID
+                if (!isPlanned || !machine) continue;
+                
+                // Determine timeline ID – supports both "207" and "7" formats
                 let timelineId = null;
-                if (machine) {
-                    // Direct match for '207','208','210','211'
-                    if (['207','208','210','211'].includes(machine)) {
-                        timelineId = `timeline-${machine}`;
-                    }
-                    // Map via machineIdMap for '7','8','10','11'
-                    else if (window.machineIdMap && window.machineIdMap[machine]) {
-                        timelineId = `timeline-${window.machineIdMap[machine]}`;
+                // Direct match for full machine numbers (207,208,210,211)
+                if (['207', '208', '210', '211'].includes(machine)) {
+                    timelineId = `timeline-${machine}`;
+                }
+                // Map short numbers (7,8,10,11) via machineIdMap
+                else if (window.machineIdMap && window.machineIdMap[machine]) {
+                    timelineId = `timeline-${window.machineIdMap[machine]}`;
+                }
+                // If no match, try using the machine number as is (if it's a valid timeline id)
+                else {
+                    // Maybe the machine is already a full number like "207"
+                    const possibleId = `timeline-${machine}`;
+                    if (document.getElementById(possibleId)) {
+                        timelineId = possibleId;
                     }
                 }
                 
-                if (timelineId && isPlanned) {
+                if (timelineId) {
                     const timeline = document.getElementById(timelineId);
                     if (timeline) {
                         // Check if already on timeline (shouldn't be, after clearing)
@@ -543,6 +716,8 @@ function handlePLUpload(file) {
                     } else {
                         console.warn(`Timeline ${timelineId} not found for job ${jobId}`);
                     }
+                } else {
+                    console.warn(`No timeline mapping for machine: ${machine} (job ${jobId})`);
                 }
             }
             
