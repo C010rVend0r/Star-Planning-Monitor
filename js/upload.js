@@ -61,7 +61,6 @@ function updateUploadStatus(uploader) {
     uploadStatus[uploader].lastUpdated = now;
     uploadStatus[uploader].status = 'updated';
     updateStatusIndicators();
-    console.log(`✅ ${uploader} upload status updated`);
 }
 
 function checkUploadValidity() {
@@ -221,7 +220,7 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// FINAL WORKING PL UPLOAD - DEDUPLICATED
+// FINAL WORKING PL UPLOAD - USES UPSERT ONLY
 // ============================================================
 async function workingPLUpload(file) {
     console.log('⚡ WORKING PL UPLOAD STARTED:', file.name);
@@ -269,7 +268,6 @@ async function workingPLUpload(file) {
                     uniqueMap.set(jobNumber, row);
                 } else {
                     dupCount++;
-                    console.log(`⚠️ Duplicate skipped: ${jobNumber}`);
                 }
             }
             
@@ -403,7 +401,7 @@ async function workingPLUpload(file) {
             // STEP 3: CLEAR EXISTING DATA
             // ============================================
             const client = initSupabase();
-            const BATCH_SIZE = 100;
+            const BATCH_SIZE = 200; // Increased for speed
             let uploaded = 0;
             const startTime = Date.now();
             
@@ -412,8 +410,8 @@ async function workingPLUpload(file) {
             
             const existingJobs = await supabaseLoadAllJobs();
             if (existingJobs && existingJobs.length > 0) {
-                for (let i = 0; i < existingJobs.length; i += 100) {
-                    const batch = existingJobs.slice(i, i + 100);
+                for (let i = 0; i < existingJobs.length; i += 200) {
+                    const batch = existingJobs.slice(i, i + 200);
                     const ids = batch.map(j => j.job_id);
                     await client.from('jobs').delete().in('job_id', ids);
                 }
@@ -422,16 +420,26 @@ async function workingPLUpload(file) {
             
             const existingPL = await supabaseLoadAllPLData();
             if (existingPL && existingPL.length > 0) {
-                for (let i = 0; i < existingPL.length; i += 100) {
-                    const batch = existingPL.slice(i, i + 100);
+                for (let i = 0; i < existingPL.length; i += 200) {
+                    const batch = existingPL.slice(i, i + 200);
                     const ids = batch.map(p => p.job_id);
                     await client.from('pl_database').delete().in('job_id', ids);
                 }
                 console.log(`🗑️ Deleted ${existingPL.length} existing PL records`);
             }
             
+            const existingAW = await supabaseLoadAllAWData();
+            if (existingAW && existingAW.length > 0) {
+                for (let i = 0; i < existingAW.length; i += 200) {
+                    const batch = existingAW.slice(i, i + 200);
+                    const ids = batch.map(a => a.job_number);
+                    await client.from('aw_data').delete().in('job_number', ids);
+                }
+                console.log(`🗑️ Deleted ${existingAW.length} existing AW records`);
+            }
+            
             // ============================================
-            // STEP 4: UPLOAD IN BATCHES (NO DUPLICATES!)
+            // STEP 4: UPLOAD USING UPSERT (NO ERRORS!)
             // ============================================
             showUploadProgress(`💾 Uploading ${allJobs.length} jobs...`, 20);
             
@@ -439,25 +447,25 @@ async function workingPLUpload(file) {
                 const jobBatch = allJobs.slice(i, i + BATCH_SIZE);
                 const plBatch = allPLData.slice(i, i + BATCH_SIZE);
                 
-                // Insert jobs (no duplicates in batch)
+                // Use UPSERT - handles duplicates automatically
                 const { error: jobError } = await client
                     .from('jobs')
-                    .insert(jobBatch);
+                    .upsert(jobBatch, { onConflict: 'job_number' });
                 
                 if (jobError) {
-                    console.warn('⚠️ Job insert error, using upsert one by one...');
+                    console.warn('⚠️ Job upsert error:', jobError.message);
+                    // If batch fails, try one by one
                     for (const job of jobBatch) {
                         await client.from('jobs').upsert(job, { onConflict: 'job_number' });
                     }
                 }
                 
-                // Insert PL data
                 const { error: plError } = await client
                     .from('pl_database')
-                    .insert(plBatch);
+                    .upsert(plBatch, { onConflict: 'job_number' });
                 
                 if (plError) {
-                    console.warn('⚠️ PL insert error, using upsert one by one...');
+                    console.warn('⚠️ PL upsert error:', plError.message);
                     for (const pl of plBatch) {
                         await client.from('pl_database').upsert(pl, { onConflict: 'job_number' });
                     }
@@ -478,7 +486,7 @@ async function workingPLUpload(file) {
 ║              ✅ UPLOAD COMPLETE!                     ║
 ╠═══════════════════════════════════════════════════════╣
 ║  📊 Jobs uploaded:  ${uploaded}                       ║
-║  ⏭️  Duplicates removed from file: ${dupCount}        ║
+║  ⏭️  Duplicates removed: ${dupCount}                  ║
 ║  ⏱️  Time:           ${totalTime} seconds             ║
 ╚═══════════════════════════════════════════════════════╝
             `);
