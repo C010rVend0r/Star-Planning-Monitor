@@ -211,6 +211,7 @@ function updateStatusIndicators(allUpdated = null) {
     
     statusContainer.innerHTML = statusHTML + summaryHTML;
 }
+
 // ============================================================
 // UPDATE REAL TIME INDICATOR
 // ============================================================
@@ -374,9 +375,8 @@ function setupExcelUploads() {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD
+// HANDLE AW UPLOAD - UPDATED WITH SUPABASE SAVE
 // ============================================================
-// upload.js - Replace handleAWUpload with this version
 
 function handleAWUpload(file) {
     console.log('Uploading AW Excel file:', file.name);
@@ -385,7 +385,7 @@ function handleAWUpload(file) {
     
     const reader = new FileReader();
     
-    reader.onload = function(e) {
+    reader.onload = async function(e) {  // ← ADDED async
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
@@ -403,11 +403,14 @@ function handleAWUpload(file) {
             
             const rows = jsonData.slice(3);
             let awJobsFound = 0;
-            let awJobsCreated = 0;
             let awJobsSkipped = 0;
             
             // CRITICAL: Save current filter state
             const savedFilterStatuses = new Set(filterStatuses);
+            
+            // Track jobs to save to Supabase
+            const jobsToUpdate = {};
+            const awDataToSave = {};
             
             rows.forEach((row, index) => {
                 if (!row || row.length < 10) {
@@ -468,7 +471,7 @@ function handleAWUpload(file) {
                     estimatedDate = calculateEstimatedDate(statusDate, 2);
                 }
                 
-                // Store AW data
+                // Store AW data in memory
                 awData[jobNumber] = {
                     status: rawStatus,
                     rawStatus: rawStatus,
@@ -477,11 +480,20 @@ function handleAWUpload(file) {
                     isFromAW: true
                 };
                 
+                // Save AW data to Supabase
+                awDataToSave[jobNumber] = {
+                    status: rawStatus,
+                    raw_status: rawStatus,
+                    status_date: statusDate.toISOString(),
+                    estimated_date: estimatedDate ? estimatedDate.toISOString() : null,
+                    is_from_aw: true
+                };
+                
                 // Find existing job by job number
                 let jobId = findJobIdByNumber(jobNumber);
                 
                 if (jobId) {
-                    // Job exists - ONLY update AW status, DO NOT change PL status
+                    // Job exists - update AW status
                     console.log(`Found matching job: ${jobId} - updating AW status only`);
                     if (jobDatabase[jobId]) {
                         jobDatabase[jobId].awStatus = rawStatus;
@@ -489,33 +501,57 @@ function handleAWUpload(file) {
                         jobDatabase[jobId].statusDate = statusDate.toISOString();
                         jobDatabase[jobId].rawAWStatus = rawStatus;
                         jobDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
-                        // DO NOT change planningStatus - it stays as is from PL
+                        
+                        // Track for Supabase save
+                        jobsToUpdate[jobId] = {
+                            aw_status: rawStatus,
+                            status: rawStatus,
+                            status_date: statusDate.toISOString(),
+                            estimated_date: estimatedDate ? estimatedDate.toISOString() : null,
+                            raw_aw_status: rawStatus
+                        };
                         
                         if (plDatabase[jobId]) {
                             plDatabase[jobId].prepressStatus = rawStatus;
                             plDatabase[jobId].statusDate = statusDate.toISOString();
                             plDatabase[jobId].rawAWStatus = rawStatus;
                             plDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
-                            // DO NOT change planningStatus - it stays as is from PL
                         }
                         
                         awJobsFound++;
                     }
                 } else {
                     // Job does NOT exist in PL - SKIP creating it
-                    // AW should only update existing jobs, not create new ones
                     console.log(`No matching job found for ${jobNumber} - skipping AW-only creation`);
                     awJobsSkipped++;
                 }
             });
             
-            console.log(`AW upload results: ${awJobsFound} updated, ${awJobsCreated} created, ${awJobsSkipped} skipped`);
-            console.log(`Total jobs in database: ${Object.keys(jobDatabase).length}`);
+            console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped`);
+            
+            // ============================================================
+            // ✅ SAVE TO SUPABASE
+            // ============================================================
+            try {
+                // Save AW data
+                if (Object.keys(awDataToSave).length > 0) {
+                    await supabaseSaveMultipleAWData(awDataToSave);
+                    console.log(`✅ ${Object.keys(awDataToSave).length} AW records saved to Supabase`);
+                }
+                
+                // Save job updates
+                if (Object.keys(jobsToUpdate).length > 0) {
+                    await supabaseSaveMultipleJobs(jobsToUpdate);
+                    console.log(`✅ ${Object.keys(jobsToUpdate).length} jobs updated in Supabase`);
+                }
+            } catch (saveError) {
+                console.error('❌ Error saving to Supabase:', saveError);
+            }
             
             // RESTORE filter state
             filterStatuses = savedFilterStatuses;
             
-            // Refresh the feed to show updated AW statuses
+            // Refresh the feed
             populateProductionFeed();
             
             // Apply filters
@@ -529,7 +565,7 @@ function handleAWUpload(file) {
                 updateUploadStatus('mahmoud');
                 updateUploadStatus('raed');
                 updateUploadStatus('rabia');
-                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped (no PL match)`, 'success');
+                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped`, 'success');
             } else {
                 if (detected.mahmoud) {
                     updateUploadStatus('mahmoud');
@@ -548,7 +584,6 @@ function handleAWUpload(file) {
             setTimeout(() => {
                 hideUploadProgress();
                 console.log('AW upload completed successfully');
-                console.log('Filter statuses after AW upload:', Array.from(filterStatuses));
             }, 1500);
             
         } catch (error) {
@@ -570,9 +605,8 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// HANDLE PL UPLOAD
+// HANDLE PL UPLOAD - UPDATED WITH SUPABASE SAVE
 // ============================================================
-// upload.js - Replace handlePLUpload with this version
 
 function handlePLUpload(file) {
     console.log('Uploading PL Excel file:', file.name);
@@ -581,7 +615,7 @@ function handlePLUpload(file) {
     
     const reader = new FileReader();
     
-    reader.onload = function(e) {
+    reader.onload = async function(e) {  // ← ADDED async
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
@@ -619,6 +653,10 @@ function handlePLUpload(file) {
             // Clear existing databases but keep AW data reference
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
+            
+            // Track data to save to Supabase
+            const jobsToSave = {};
+            const plDataToSave = {};
             
             rows.forEach((row, index) => {
                 if (!row || row.length < 25) {
@@ -772,10 +810,106 @@ function handlePLUpload(file) {
                     estimatedDate: estimatedDate ? estimatedDate.toISOString() : null
                 };
                 
+                // Track for Supabase save
+                const jobDataForDB = {
+                    job_id: jobId,
+                    job_number: jobNumber,
+                    name: jobName || 'Unnamed Job',
+                    status: effectiveStatus,
+                    aw_status: awStatus,
+                    raw_aw_status: awStatus,
+                    planning_status: planningStatus || 'Unplanned',
+                    status_date: statusDate.toISOString(),
+                    estimated_date: estimatedDate ? estimatedDate.toISOString() : null,
+                    setup: setupTime || plannedSetup || 120,
+                    quantity: meters || quantity || 0,
+                    is_complete: isComplete,
+                    is_planned: isPlanned,
+                    is_unplanned: isUnplanned,
+                    is_deleted: isDeleted,
+                    is_hold: isHold,
+                    new_plat: newPlat,
+                    material_availability: materialAvailability,
+                    delivered: delivered,
+                    delivered2: delivered2,
+                    machine: machine,
+                    cutting_method: cuttingMethod,
+                    film: film,
+                    thickness: thickness,
+                    material_type: materialType,
+                    machine_speed: machineSpeed,
+                    meters: meters,
+                    setup_time: setupTime,
+                    required_time: requiredTime,
+                    planned_speed: plannedSpeed,
+                    actual_speed: actualSpeed,
+                    planned_setup: plannedSetup,
+                    actual_setup: actualSetup,
+                    downtime: downtime,
+                    printing_duration: printingDuration
+                };
+                jobsToSave[jobId] = jobDataForDB;
+                
+                const plDataForDB = {
+                    job_id: jobId,
+                    job_number: jobNumber,
+                    job_name: jobName || 'Unnamed Job',
+                    new_plat: newPlat,
+                    prepress_status: awStatus || 'Unknown',
+                    material_availability: materialAvailability,
+                    planning_status: planningStatus || 'Unplanned',
+                    delivered: delivered,
+                    delivered2: delivered2,
+                    machine: machine,
+                    cutting_method: cuttingMethod,
+                    quantity: quantity,
+                    film: film,
+                    thickness: thickness,
+                    material_type: materialType,
+                    machine_speed: machineSpeed,
+                    meters: meters,
+                    setup_time: setupTime,
+                    required_time: requiredTime,
+                    planned_speed: plannedSpeed,
+                    actual_speed: actualSpeed,
+                    planned_setup: plannedSetup,
+                    actual_setup: actualSetup,
+                    downtime: downtime,
+                    printing_duration: printingDuration,
+                    is_complete: isComplete,
+                    is_planned: isPlanned,
+                    is_unplanned: isUnplanned,
+                    is_deleted: isDeleted,
+                    is_hold: isHold,
+                    status_date: statusDate.toISOString(),
+                    estimated_date: estimatedDate ? estimatedDate.toISOString() : null
+                };
+                plDataToSave[jobId] = plDataForDB;
+                
                 jobsAdded++;
             });
             
             console.log(`Added ${jobsAdded} jobs to database, ${jobsWithAW} have AW data`);
+            
+            // ============================================================
+            // ✅ SAVE TO SUPABASE
+            // ============================================================
+            try {
+                // Save jobs
+                if (Object.keys(jobsToSave).length > 0) {
+                    await supabaseSaveMultipleJobs(jobsToSave);
+                    console.log(`✅ ${Object.keys(jobsToSave).length} jobs saved to Supabase`);
+                }
+                
+                // Save PL data
+                for (const [jobId, data] of Object.entries(plDataToSave)) {
+                    await supabaseSavePLData(jobId, data);
+                }
+                console.log(`✅ ${Object.keys(plDataToSave).length} PL records saved to Supabase`);
+                
+            } catch (saveError) {
+                console.error('❌ Error saving to Supabase:', saveError);
+            }
             
             // Populate the feed
             populateProductionFeed();
