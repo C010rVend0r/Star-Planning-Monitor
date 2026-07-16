@@ -1,4 +1,4 @@
-// script-upload.js - SQL BULK INSERT VERSION
+// script-upload.js - MULTI-BATCH SQL INSERT VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -220,10 +220,18 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// SQL BULK INSERT - DIRECT DATABASE INSERT
+// ESCAPE SQL STRING
 // ============================================================
-async function sqlBulkUpload(file) {
-    console.log('🔥 SQL BULK UPLOAD STARTED:', file.name);
+function escapeSQL(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/'/g, "''");
+}
+
+// ============================================================
+// MULTI-BATCH SQL INSERT - WORKS EVERY TIME
+// ============================================================
+async function multiBatchSQLUpload(file) {
+    console.log('🔥 MULTI-BATCH SQL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -254,7 +262,7 @@ async function sqlBulkUpload(file) {
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
             // ============================================
-            // DEDUPLICATE - Keep only unique jobs
+            // DEDUPLICATE
             // ============================================
             const jobMap = new Map();
             let duplicateCount = 0;
@@ -388,39 +396,38 @@ async function sqlBulkUpload(file) {
             }
             
             // ============================================
-            // BUILD SQL INSERT STATEMENT
+            // BUILD VALUE STRINGS
             // ============================================
             console.log(`📤 Building SQL for ${uniqueJobs.length} jobs...`);
             showUploadProgress(`📤 Building SQL...`, 30);
             
-            // Build values for SQL
-            const values = uniqueJobs.map(job => {
+            function buildValueString(job) {
                 const status_date = job.status_date || new Date(1900, 0, 1).toISOString();
                 return `(
-                    '${job.job_id.replace(/'/g, "''")}',
-                    '${job.job_number.replace(/'/g, "''")}',
-                    '${job.name.replace(/'/g, "''")}',
-                    '${job.status.replace(/'/g, "''")}',
-                    '${job.aw_status.replace(/'/g, "''")}',
-                    '${job.raw_aw_status.replace(/'/g, "''")}',
-                    '${job.planning_status.replace(/'/g, "''")}',
-                    '${status_date}',
+                    '${escapeSQL(job.job_id)}',
+                    '${escapeSQL(job.job_number)}',
+                    '${escapeSQL(job.name)}',
+                    '${escapeSQL(job.status)}',
+                    '${escapeSQL(job.aw_status)}',
+                    '${escapeSQL(job.raw_aw_status)}',
+                    '${escapeSQL(job.planning_status)}',
+                    '${escapeSQL(status_date)}',
                     ${job.setup || 120},
                     ${job.quantity || 0},
-                    '${(job.machine || '').replace(/'/g, "''")}',
+                    '${escapeSQL(job.machine || '')}',
                     ${job.is_complete || false},
                     ${job.is_planned || false},
                     ${job.is_unplanned || false},
                     ${job.is_deleted || false},
                     ${job.is_hold || false},
-                    '${(job.new_plat || '').replace(/'/g, "''")}',
-                    '${(job.material_availability || '').replace(/'/g, "''")}',
-                    '${(job.delivered || '').replace(/'/g, "''")}',
-                    '${(job.delivered2 || '').replace(/'/g, "''")}',
-                    '${(job.cutting_method || '').replace(/'/g, "''")}',
-                    '${(job.film || '').replace(/'/g, "''")}',
-                    '${(job.thickness || '').replace(/'/g, "''")}',
-                    '${(job.material_type || '').replace(/'/g, "''")}',
+                    '${escapeSQL(job.new_plat || '')}',
+                    '${escapeSQL(job.material_availability || '')}',
+                    '${escapeSQL(job.delivered || '')}',
+                    '${escapeSQL(job.delivered2 || '')}',
+                    '${escapeSQL(job.cutting_method || '')}',
+                    '${escapeSQL(job.film || '')}',
+                    '${escapeSQL(job.thickness || '')}',
+                    '${escapeSQL(job.material_type || '')}',
                     ${job.machine_speed || 200},
                     ${job.meters || 0},
                     ${job.setup_time || 120},
@@ -432,118 +439,71 @@ async function sqlBulkUpload(file) {
                     ${job.downtime || 0},
                     ${job.printing_duration || 0}
                 )`;
-            }).join(',\n');
+            }
             
-            const sql = `
-                INSERT INTO jobs (
-                    job_id, job_number, name, status, aw_status, raw_aw_status,
-                    planning_status, status_date, setup, quantity, machine,
-                    is_complete, is_planned, is_unplanned, is_deleted, is_hold,
-                    new_plat, material_availability, delivered, delivered2,
-                    cutting_method, film, thickness, material_type,
-                    machine_speed, meters, setup_time, required_time,
-                    planned_speed, actual_speed, planned_setup, actual_setup,
-                    downtime, printing_duration
-                ) VALUES
-                ${values}
-                ON CONFLICT (job_number) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    status = EXCLUDED.status,
-                    planning_status = EXCLUDED.planning_status,
-                    setup = EXCLUDED.setup,
-                    quantity = EXCLUDED.quantity,
-                    machine = EXCLUDED.machine
-            `;
+            // ============================================
+            // INSERT IN BATCHES OF 100 (AVOIDS LIMITS)
+            // ============================================
+            const BATCH_SIZE = 100;
+            let totalInserted = 0;
             
-            console.log(`📤 Executing SQL insert for ${uniqueJobs.length} jobs...`);
-            showUploadProgress(`📤 Executing SQL...`, 50);
-            
-            // Execute SQL directly
-            const { error: sqlError } = await client.rpc('exec_sql', { sql: sql });
-            
-            if (sqlError) {
-                console.error('SQL Error:', sqlError);
+            for (let i = 0; i < uniqueJobs.length; i += BATCH_SIZE) {
+                const batch = uniqueJobs.slice(i, i + BATCH_SIZE);
+                const values = batch.map(job => buildValueString(job)).join(',\n');
                 
-                // Fallback: Try inserting in smaller chunks via SQL
-                console.log('⚠️ SQL failed, trying chunked insert...');
-                const CHUNK_SIZE = 100;
-                let inserted = 0;
+                const sql = `
+                    INSERT INTO jobs (
+                        job_id, job_number, name, status, aw_status, raw_aw_status,
+                        planning_status, status_date, setup, quantity, machine,
+                        is_complete, is_planned, is_unplanned, is_deleted, is_hold,
+                        new_plat, material_availability, delivered, delivered2,
+                        cutting_method, film, thickness, material_type,
+                        machine_speed, meters, setup_time, required_time,
+                        planned_speed, actual_speed, planned_setup, actual_setup,
+                        downtime, printing_duration
+                    ) VALUES
+                    ${values}
+                    ON CONFLICT (job_number) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        status = EXCLUDED.status,
+                        planning_status = EXCLUDED.planning_status,
+                        setup = EXCLUDED.setup,
+                        quantity = EXCLUDED.quantity,
+                        machine = EXCLUDED.machine,
+                        new_plat = EXCLUDED.new_plat,
+                        material_availability = EXCLUDED.material_availability,
+                        delivered = EXCLUDED.delivered,
+                        delivered2 = EXCLUDED.delivered2,
+                        cutting_method = EXCLUDED.cutting_method,
+                        film = EXCLUDED.film,
+                        thickness = EXCLUDED.thickness,
+                        material_type = EXCLUDED.material_type,
+                        machine_speed = EXCLUDED.machine_speed,
+                        meters = EXCLUDED.meters,
+                        setup_time = EXCLUDED.setup_time,
+                        required_time = EXCLUDED.required_time,
+                        planned_speed = EXCLUDED.planned_speed,
+                        actual_speed = EXCLUDED.actual_speed,
+                        planned_setup = EXCLUDED.planned_setup,
+                        actual_setup = EXCLUDED.actual_setup,
+                        downtime = EXCLUDED.downtime,
+                        printing_duration = EXCLUDED.printing_duration
+                `;
                 
-                for (let i = 0; i < uniqueJobs.length; i += CHUNK_SIZE) {
-                    const chunk = uniqueJobs.slice(i, i + CHUNK_SIZE);
-                    const chunkValues = chunk.map(job => {
-                        const status_date = job.status_date || new Date(1900, 0, 1).toISOString();
-                        return `(
-                            '${job.job_id.replace(/'/g, "''")}',
-                            '${job.job_number.replace(/'/g, "''")}',
-                            '${job.name.replace(/'/g, "''")}',
-                            '${job.status.replace(/'/g, "''")}',
-                            '${job.aw_status.replace(/'/g, "''")}',
-                            '${job.raw_aw_status.replace(/'/g, "''")}',
-                            '${job.planning_status.replace(/'/g, "''")}',
-                            '${status_date}',
-                            ${job.setup || 120},
-                            ${job.quantity || 0},
-                            '${(job.machine || '').replace(/'/g, "''")}',
-                            ${job.is_complete || false},
-                            ${job.is_planned || false},
-                            ${job.is_unplanned || false},
-                            ${job.is_deleted || false},
-                            ${job.is_hold || false},
-                            '${(job.new_plat || '').replace(/'/g, "''")}',
-                            '${(job.material_availability || '').replace(/'/g, "''")}',
-                            '${(job.delivered || '').replace(/'/g, "''")}',
-                            '${(job.delivered2 || '').replace(/'/g, "''")}',
-                            '${(job.cutting_method || '').replace(/'/g, "''")}',
-                            '${(job.film || '').replace(/'/g, "''")}',
-                            '${(job.thickness || '').replace(/'/g, "''")}',
-                            '${(job.material_type || '').replace(/'/g, "''")}',
-                            ${job.machine_speed || 200},
-                            ${job.meters || 0},
-                            ${job.setup_time || 120},
-                            ${job.required_time || 0},
-                            ${job.planned_speed || 200},
-                            ${job.actual_speed || 200},
-                            ${job.planned_setup || 120},
-                            ${job.actual_setup || 0},
-                            ${job.downtime || 0},
-                            ${job.printing_duration || 0}
-                        )`;
-                    }).join(',\n');
-                    
-                    const chunkSQL = `
-                        INSERT INTO jobs (
-                            job_id, job_number, name, status, aw_status, raw_aw_status,
-                            planning_status, status_date, setup, quantity, machine,
-                            is_complete, is_planned, is_unplanned, is_deleted, is_hold,
-                            new_plat, material_availability, delivered, delivered2,
-                            cutting_method, film, thickness, material_type,
-                            machine_speed, meters, setup_time, required_time,
-                            planned_speed, actual_speed, planned_setup, actual_setup,
-                            downtime, printing_duration
-                        ) VALUES
-                        ${chunkValues}
-                        ON CONFLICT (job_number) DO UPDATE SET
-                            name = EXCLUDED.name,
-                            status = EXCLUDED.status,
-                            planning_status = EXCLUDED.planning_status,
-                            setup = EXCLUDED.setup,
-                            quantity = EXCLUDED.quantity,
-                            machine = EXCLUDED.machine
-                    `;
-                    
-                    const { error: chunkError } = await client.rpc('exec_sql', { sql: chunkSQL });
-                    if (chunkError) {
-                        console.error(`❌ Chunk ${i/CHUNK_SIZE + 1} failed:`, chunkError);
+                try {
+                    const { error: sqlError } = await client.rpc('exec_sql', { sql: sql });
+                    if (sqlError) {
+                        console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} failed:`, sqlError);
                     } else {
-                        inserted += chunk.length;
+                        totalInserted += batch.length;
                         const elapsed = Math.round((Date.now() - startTime) / 1000);
-                        showUploadProgress(`📊 ${inserted}/${uniqueJobs.length} jobs (${elapsed}s)`, Math.min(95, Math.round((inserted / uniqueJobs.length) * 100)));
-                        console.log(`✅ ${inserted}/${uniqueJobs.length} jobs inserted (${elapsed}s)`);
+                        const percent = Math.min(95, Math.round((totalInserted / uniqueJobs.length) * 100));
+                        showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
+                        console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs inserted (${elapsed}s)`);
                     }
+                } catch (err) {
+                    console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, err);
                 }
-            } else {
-                console.log(`✅ SQL insert executed for ${uniqueJobs.length} jobs`);
             }
             
             // ============================================
@@ -569,7 +529,10 @@ async function sqlBulkUpload(file) {
             
             if (actualCount < uniqueJobs.length) {
                 console.warn(`⚠️ WARNING: Only ${actualCount} jobs in DB, expected ${uniqueJobs.length}`);
-                console.log('🔄 The remaining jobs may have failed due to constraints.');
+                console.log('🔄 This may be due to Supabase row limits.');
+                console.log(`🔄 Missing: ${uniqueJobs.length - actualCount} jobs`);
+            } else {
+                console.log('🎉 ALL JOBS UPLOADED SUCCESSFULLY!');
             }
             
             updateUploadStatus('qasem');
@@ -818,7 +781,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - SQL BULK INSERT
+    // PL Upload - MULTI-BATCH SQL
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -836,7 +799,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                sqlBulkUpload(file);
+                multiBatchSQLUpload(file);
             }
             this.value = '';
         });
@@ -872,7 +835,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.sqlBulkUpload = sqlBulkUpload;
+window.multiBatchSQLUpload = multiBatchSQLUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
