@@ -684,7 +684,7 @@ function handlePLUpload(file) {
                 
                 const isPlanned = planningStatus === 'Planned';
                 const isComplete = planningStatus === 'Complete' || planningStatus === 'Printed';
-                const isUnprinted = planningStatus === 'Unprinted';
+                const isUnplanned = planningStatus === 'Unplanned';
                 const isDeleted = planningStatus === 'Deleted' || planningStatus === 'PL-Deleted';
                 const isHold = planningStatus === 'Hold' || planningStatus === 'PL-Hold';
                 
@@ -693,12 +693,12 @@ function handlePLUpload(file) {
                 let effectiveStatus = awStatus;
                 if (isComplete) effectiveStatus = 'Complete';
                 else if (isPlanned) effectiveStatus = 'Planned';
-                else if (isUnprinted) effectiveStatus = 'Unprinted';
+                else if (isUnplanned) effectiveStatus = 'Unplanned';
                 else if (isDeleted) effectiveStatus = 'PL-Deleted';
                 else if (isHold) effectiveStatus = 'PL-Hold';
                 // If no AW status, keep the PL status as the main status
-                if (awStatus === 'Unknown' && !isComplete && !isPlanned && !isUnprinted && !isDeleted && !isHold) {
-                    effectiveStatus = planningStatus || 'Unprinted';
+                if (awStatus === 'Unknown' && !isComplete && !isPlanned && !isUnplanned && !isDeleted && !isHold) {
+                    effectiveStatus = planningStatus || 'Unplanned';
                 }
                 
                 jobDatabase[jobId] = {
@@ -707,14 +707,14 @@ function handlePLUpload(file) {
                     status: effectiveStatus,
                     awStatus: awStatus,
                     rawAWStatus: awStatus,
-                    planningStatus: planningStatus || 'Unprinted',
+                    planningStatus: planningStatus || 'Unplanned',
                     statusDate: statusDate.toISOString(),
                     estimatedDate: estimatedDate ? estimatedDate.toISOString() : null,
                     setup: setupTime || plannedSetup || 120,
                     quantity: meters || quantity || 0,
                     isComplete: isComplete,
                     isPlanned: isPlanned,
-                    isUnprinted: isUnprinted,
+                    isUnplanned: isUnplanned,
                     isDeleted: isDeleted,
                     isHold: isHold,
                     newPlat: newPlat,
@@ -744,7 +744,7 @@ function handlePLUpload(file) {
                     newPlat: newPlat,
                     prepressStatus: awStatus || 'Unknown',
                     materialAvailability: materialAvailability,
-                    planningStatus: planningStatus || 'Unprinted',
+                    planningStatus: planningStatus || 'Unplanned',
                     delivered: delivered,
                     delivered2: delivered2,
                     machine: machine,
@@ -765,7 +765,7 @@ function handlePLUpload(file) {
                     printingDuration: printingDuration,
                     isComplete: isComplete,
                     isPlanned: isPlanned,
-                    isUnprinted: isUnprinted,
+                    isUnplanned: isUnplanned,
                     isDeleted: isDeleted,
                     isHold: isHold,
                     statusDate: statusDate.toISOString(),
