@@ -27,7 +27,7 @@ const statusColorMap = {
     'On Hold': '#ffc107',
     'Printed': '#2c3e50',
     'Complete': '#2c3e50',
-    'Unprinted': '#fd7e14',
+    'Unplanned': '#fd7e14',
     'Planned': '#17a2b8',
     'PL-Deleted': '#c0392b',
     'PL-Hold': '#e67e22'
@@ -49,7 +49,7 @@ const statusDisplayMap = {
     'On Hold': 'On Hold',
     'Printed': 'Printed',
     'Complete': 'Complete',
-    'Unprinted': 'Unprinted',
+    'Unplanned': 'Unplanned',
     'Planned': 'Planned',
     'PL-Deleted': 'Deleted',
     'PL-Hold': 'Hold'
@@ -62,7 +62,7 @@ const AW_STATUSES = [
     '8. Repro: Plate Making', '9. Plates are Ready', 'Deleted', 'On Hold'
 ];
 
-const PL_STATUSES = ['Complete', 'Planned', 'Unprinted', 'PL-Deleted', 'PL-Hold'];
+const PL_STATUSES = ['Complete', 'Planned', 'Unplanned', 'PL-Deleted', 'PL-Hold'];
 
 const ALL_STATUSES = [...AW_STATUSES, ...PL_STATUSES];
 
@@ -75,7 +75,7 @@ AW_STATUSES.forEach(status => {
 });
 
 PL_STATUSES.forEach(status => {
-    if (status === 'Planned' || status === 'Unprinted') {
+    if (status === 'Planned' || status === 'Unplanned') {
         filterStatuses.add(status);
     }
 });
@@ -303,7 +303,7 @@ function createFeedJobElement(jobId, jobData) {
     }
     
     // If the job only has PL data (no AW), show the PL status as the main status
-    if (awStatus === 'Unknown' && jobData.planningStatus && jobData.planningStatus !== 'Unprinted') {
+    if (awStatus === 'Unknown' && jobData.planningStatus && jobData.planningStatus !== 'Unplanned') {
         awStatus = jobData.planningStatus;
     }
     
@@ -324,7 +324,7 @@ function createFeedJobElement(jobId, jobData) {
     }
     
     // PL status
-    const plStatus = jobData.planningStatus || 'Unprinted';
+    const plStatus = jobData.planningStatus || 'Unplanned';
     const plDisplayStatus = statusDisplayMap[plStatus] || plStatus || 'Unknown';
     const plStatusColor = statusColorMap[plStatus] || '#6c757d';
     
@@ -717,7 +717,7 @@ document.getElementById('reset-default-filter').addEventListener('click', functi
     // Add 'Unknown' to default filters
     filterStatuses.add('Unknown');
     PL_STATUSES.forEach(status => {
-        if (status === 'Planned' || status === 'Unprinted') {
+        if (status === 'Planned' || status === 'Unplanned') {
             filterStatuses.add(status);
         }
     });
@@ -912,13 +912,13 @@ function applyFilter() {
                         break;
                     }
                 }
-                // If still not found, use Unprinted as fallback
+                // If still not found, use Unplanned as fallback
                 if (!plMatched) {
-                    plMatched = 'Unprinted';
+                    plMatched = 'Unplanned';
                 }
             }
         } else {
-            plMatched = 'Unprinted';
+            plMatched = 'Unplanned';
         }
         
         // SPECIAL CASE: If AW status is 'Unknown' and there's no AW filter, show the job
@@ -1014,7 +1014,7 @@ function updateFilterCounts() {
         if (awMatched) counts[awMatched] = (counts[awMatched] || 0) + 1;
         
         // Get PL status from database
-        let plStatus = jobData?.planningStatus || 'Unprinted';
+        let plStatus = jobData?.planningStatus || 'Unplanned';
         
         // Map to PL_STATUSES
         let plMatched = null;
@@ -1029,7 +1029,7 @@ function updateFilterCounts() {
                 }
             }
             if (!plMatched) {
-                plMatched = 'Unprinted';
+                plMatched = 'Unplanned';
             }
         }
         if (plMatched) counts[plMatched] = (counts[plMatched] || 0) + 1;
@@ -1178,16 +1178,16 @@ function updateJobStatus(jobId, newStatus) {
 function updateJobPLStatus(jobId, newPLStatus) {
     if (!jobDatabase[jobId]) return false;
     
-    const validPLStatuses = ['Planned', 'Unprinted', 'Complete', 'PL-Deleted', 'PL-Hold'];
+    const validPLStatuses = ['Planned', 'Unplanned', 'Complete', 'PL-Deleted', 'PL-Hold'];
     const statusMap = {
-        'Planned': 'Planned', 'Unprinted': 'Unprinted', 'Complete': 'Complete',
+        'Planned': 'Planned', 'Unplanned': 'Unplanned', 'Complete': 'Complete',
         'Deleted': 'PL-Deleted', 'Hold': 'PL-Hold'
     };
     
     const mappedStatus = statusMap[newPLStatus] || newPLStatus;
     if (!validPLStatuses.includes(mappedStatus)) {
-        console.warn(`Invalid PL status: ${newPLStatus}. Using 'Unprinted' as fallback.`);
-        return updateJobPLStatus(jobId, 'Unprinted');
+        console.warn(`Invalid PL status: ${newPLStatus}. Using 'Unplanned' as fallback.`);
+        return updateJobPLStatus(jobId, 'Unplanned');
     }
     
     const finalStatus = mappedStatus;
@@ -1268,7 +1268,7 @@ function handleAddJob() {
     jobDatabase[jobId] = {
         name: jobName, setup: setupTime, quantity: quantity,
         status: 'Missing Data', awStatus: 'Missing Data',
-        planningStatus: 'Unprinted',
+        planningStatus: 'Unplanned',
         statusDate: new Date(1900, 0, 1).toISOString(),
         jobNumber: 'JOB-' + String(Object.keys(jobDatabase).length + 1).padStart(3, '0')
     };
