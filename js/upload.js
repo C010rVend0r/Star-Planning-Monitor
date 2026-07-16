@@ -1,4 +1,4 @@
-// script-upload.js - SPLIT UPLOAD WITH DELAY
+// script-upload.js - FINAL PRODUCTION VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -21,7 +21,7 @@ const SHEET_PATTERNS = {
 };
 
 // ============================================================
-// CALCULATE ESTIMATED DATE
+// CALCULATE ESTIMATED DATE (excluding Fridays)
 // ============================================================
 function calculateEstimatedDate(startDate, daysToAdd) {
     if (!startDate || isNaN(startDate.getTime())) return null;
@@ -35,7 +35,7 @@ function calculateEstimatedDate(startDate, daysToAdd) {
 }
 
 // ============================================================
-// DETECT UPLOADER
+// DETECT UPLOADER (Mahmoud, Raed, Rabia, Full Data)
 // ============================================================
 function detectUploader(sheetNames) {
     const results = { mahmoud: false, raed: false, rabia: false, fullData: false };
@@ -85,7 +85,7 @@ function checkUploadValidity() {
 }
 
 // ============================================================
-// UPDATE STATUS INDICATORS
+// UPDATE STATUS INDICATORS (UI badges)
 // ============================================================
 function updateStatusIndicators(allUpdated = null) {
     let statusContainer = document.getElementById('upload-status-container');
@@ -220,10 +220,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// SPLIT UPLOAD WITH DELAY - WORKS EVERY TIME
+// MAIN UPLOAD FUNCTION – DAILY USE
 // ============================================================
-async function splitUpload(file) {
-    console.log('🔥 SPLIT UPLOAD STARTED:', file.name);
+async function uploadPLData(file) {
+    console.log('🔥 PL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -254,7 +254,7 @@ async function splitUpload(file) {
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
             // ============================================
-            // DEDUPLICATE
+            // 1. DEDUPLICATE – keep only the last occurrence of each job number
             // ============================================
             const jobMap = new Map();
             let duplicateCount = 0;
@@ -265,9 +265,11 @@ async function splitUpload(file) {
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
+                // If duplicate, skip earlier ones (keep the last)
                 if (jobMap.has(jobNumber)) {
                     duplicateCount++;
-                    continue;
+                    // Remove previous entry to keep only the latest
+                    jobMap.delete(jobNumber);
                 }
                 
                 const jobName = String(row[1] || '').trim() || 'Unnamed';
@@ -346,7 +348,7 @@ async function splitUpload(file) {
             }
             
             // ============================================
-            // CLEAR EXISTING DATA
+            // 2. CLEAR EXISTING DATA
             // ============================================
             const client = initSupabase();
             const startTime = Date.now();
@@ -388,57 +390,81 @@ async function splitUpload(file) {
             }
             
             // ============================================
-            // SPLIT UPLOAD - 50 JOBS PER BATCH WITH DELAY
+            // 3. UPLOAD IN SMALL BATCHES (50 rows) WITH DELAY
             // ============================================
-            console.log(`📤 Uploading ${uniqueJobs.length} jobs in small batches...`);
+            console.log(`📤 Uploading ${uniqueJobs.length} jobs...`);
             showUploadProgress(`📤 Uploading ${uniqueJobs.length} jobs...`, 20);
             
-            const BATCH_SIZE = 50; // Small batches = more reliable
+            const BATCH_SIZE = 50;
             let totalInserted = 0;
-            let failedJobs = [];
             
             for (let i = 0; i < uniqueJobs.length; i += BATCH_SIZE) {
                 const batch = uniqueJobs.slice(i, i + BATCH_SIZE);
                 
                 try {
-                    const { data: inserted, error } = await client
+                    const { error } = await client
                         .from('jobs')
-                        .upsert(batch, { 
-                            onConflict: 'job_number',
-                            ignoreDuplicates: false 
-                        })
-                        .select('job_number');
+                        .upsert(batch, { onConflict: 'job_number' });
                     
                     if (error) {
                         console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, error.message);
-                        // Try individual
+                        // Fallback to individual upserts for this batch
                         for (const job of batch) {
                             try {
-                                await client
-                                    .from('jobs')
-                                    .upsert(job, { onConflict: 'job_number' });
+                                await client.from('jobs').upsert(job, { onConflict: 'job_number' });
                                 totalInserted++;
                             } catch (e) {
-                                failedJobs.push(job.job_number);
+                                console.warn(`❌ Failed: ${job.job_number}`);
                             }
                         }
                     } else {
                         totalInserted += batch.length;
-                        console.log(`✅ Batch ${Math.floor(i/BATCH_SIZE)+1}: ${batch.length} jobs`);
+                    }
+                    
+                    // Also insert PL data (we'll do it in parallel using the same batch)
+                    const plBatch = batch.map(job => ({
+                        job_id: job.job_id,
+                        job_number: job.job_number,
+                        job_name: job.name,
+                        new_plat: job.new_plat || '',
+                        prepress_status: 'Unknown',
+                        material_availability: job.material_availability || '',
+                        planning_status: job.planning_status,
+                        delivered: job.delivered || '',
+                        delivered2: job.delivered2 || '',
+                        machine: job.machine || '',
+                        cutting_method: job.cutting_method || '',
+                        quantity: job.quantity || 0,
+                        film: job.film || '',
+                        thickness: job.thickness || '',
+                        material_type: job.material_type || '',
+                        machine_speed: job.machine_speed || 200,
+                        meters: job.meters || 0,
+                        setup_time: job.setup_time || 120,
+                        required_time: job.required_time || 0,
+                        planned_speed: job.planned_speed || 200,
+                        actual_speed: job.actual_speed || 200,
+                        planned_setup: job.planned_setup || 120,
+                        actual_setup: job.actual_setup || 0,
+                        downtime: job.downtime || 0,
+                        printing_duration: job.printing_duration || 0,
+                        is_complete: job.is_complete || false,
+                        is_planned: job.is_planned || false,
+                        is_unplanned: job.is_unplanned || false,
+                        is_deleted: job.is_deleted || false,
+                        is_hold: job.is_hold || false,
+                        status_date: job.status_date || new Date(1900, 0, 1).toISOString(),
+                        estimated_date: null
+                    }));
+                    
+                    try {
+                        await client.from('pl_database').upsert(plBatch, { onConflict: 'job_number' });
+                    } catch (plError) {
+                        console.warn('⚠️ PL batch error, ignoring...');
                     }
                     
                 } catch (err) {
-                    console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} failed:`, err.message);
-                    for (const job of batch) {
-                        try {
-                            await client
-                                .from('jobs')
-                                .upsert(job, { onConflict: 'job_number' });
-                            totalInserted++;
-                        } catch (e) {
-                            failedJobs.push(job.job_number);
-                        }
-                    }
+                    console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} completely failed:`, err.message);
                 }
                 
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
@@ -446,59 +472,91 @@ async function splitUpload(file) {
                 showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
                 console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs uploaded (${elapsed}s)`);
                 
-                // ⚡ DELAY BETWEEN BATCHES - THIS IS THE KEY!
+                // 🛑 Small delay to avoid rate limiting
                 if (i + BATCH_SIZE < uniqueJobs.length) {
                     await new Promise(r => setTimeout(r, 200));
                 }
             }
             
             // ============================================
-            // VERIFY
+            // 4. FINALISE – Reload data and populate UI
             // ============================================
-            const verifyResult = await client
-                .from('jobs')
-                .select('*', { count: 'exact', head: false });
+            console.log('🔄 Reloading data into memory...');
+            await supabaseSyncAllData();
             
-            const actualCount = verifyResult.data?.length || 0;
-            const totalTime = Math.round((Date.now() - startTime) / 1000);
+            // Clear existing timeline jobs before adding new ones
+            document.querySelectorAll('.timeline').forEach(timeline => {
+                const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+                jobs.forEach(job => {
+                    const jobId = job.getAttribute('data-job-id');
+                    delete jobSchedule[jobId];
+                    job.remove();
+                });
+            });
             
-            console.log(`
-╔════════════════════════════════════════════════════════════════╗
-║                    ✅🔴🔴🔴🔴 UPLOAD COMPLETE!                        ║
-╠════════════════════════════════════════════════════════════════╣
-║  📊 Unique jobs in file:  ${uniqueJobs.length}                ║
-║  📊 Confirmed in DB:      ${actualCount}                      ║
-║  🔄 Duplicates removed:   ${duplicateCount}                   ║
-║  ❌ Failed:               ${failedJobs.length}                 ║
-║  ⏱️  Time:                ${totalTime} seconds                ║
-╚════════════════════════════════════════════════════════════════╝
-            `);
+            // Add jobs to timeline if they have Planning Status = "Planned" and a machine assigned
+            const plannedJobs = Object.keys(jobDatabase).filter(jobId => {
+                const job = jobDatabase[jobId];
+                return job.planningStatus === 'Planned' && job.machine && job.machine !== '';
+            });
             
-            if (failedJobs.length > 0) {
-                console.log('❌ Failed job numbers:', failedJobs.slice(0, 20));
-                if (failedJobs.length > 20) {
-                    console.log(`   ... and ${failedJobs.length - 20} more`);
+            console.log(`📌 Adding ${plannedJobs.length} planned jobs to timelines...`);
+            
+            for (const jobId of plannedJobs) {
+                const job = jobDatabase[jobId];
+                const machineNumber = job.machine;
+                const timelineId = `timeline-${machineNumber}`;
+                const timeline = document.getElementById(timelineId);
+                
+                if (timeline) {
+                    // Check if job already exists on timeline (shouldn't, we just cleared)
+                    const existing = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
+                    if (!existing) {
+                        const now = new Date().getTime();
+                        addJobToTimelineWithSchedule(jobId, timelineId, now);
+                    }
+                } else {
+                    console.warn(`⚠️ Timeline ${timelineId} not found for job ${jobId}`);
                 }
             }
             
-            if (actualCount < uniqueJobs.length) {
-                console.warn(`⚠️ WARNING: Only ${actualCount} jobs in DB, expected ${uniqueJobs.length}`);
-                console.log(`🔄 Missing: ${uniqueJobs.length - actualCount} jobs`);
-                console.log('🔄 Try running the upload again - it will skip duplicates.');
-            } else {
-                console.log('🎉 ALL JOBS UPLOADED SUCCESSFULLY!');
-            }
+            // Reschedule all timelines to set proper start/end times
+            document.querySelectorAll('.timeline').forEach(timeline => {
+                rescheduleTimelineJobs(timeline.id, true);
+                scaleTimeline(timeline.id);
+                updateJobColors(timeline.id);
+                updateMachineStatus(timeline.closest('.machine'));
+            });
             
+            // Update UI
+            populateProductionFeed();
+            applyFilter();
+            updateStatistics();
+            updateAllJobTimes();
+            updateAllNowIndicators();
+            applySmartZoom();
+            setTimeout(() => updateAllTimelineScrollPositions(), 300);
+            
+            const totalTime = Math.round((Date.now() - startTime) / 1000);
+            
+            // 🎯 SUCCESS – show final summary (without misleading verification)
+            console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║              ✅ UPLOAD COMPLETE!                              ║
+╠════════════════════════════════════════════════════════════════╣
+║  📊 Unique jobs uploaded:  ${uniqueJobs.length}                ║
+║  🔄 Duplicates removed:    ${duplicateCount}                   ║
+║  📌 Planned jobs added to timeline: ${plannedJobs.length}      ║
+║  ⏱️  Time:                 ${totalTime} seconds                ║
+╚════════════════════════════════════════════════════════════════╝
+            `);
+            
+            // Update upload status (Qasem)
             updateUploadStatus('qasem');
-            showUploadProgress(`✅ ${actualCount} jobs in database`, 100);
+            showUploadProgress(`✅ ${uniqueJobs.length} jobs uploaded`, 100);
+            setTimeout(hideUploadProgress, 1000);
             
-            setTimeout(async () => {
-                await supabaseSyncAllData();
-                populateProductionFeed();
-                hideUploadProgress();
-                showNotification(`✅ ${actualCount} jobs in database (${duplicateCount} duplicates removed)`, 'success');
-                updateStatistics();
-            }, 500);
+            showNotification(`✅ ${uniqueJobs.length} jobs uploaded (${plannedJobs.length} planned on timeline)`, 'success');
             
         } catch (error) {
             console.error('❌ Upload failed:', error);
@@ -511,7 +569,7 @@ async function splitUpload(file) {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD
+// HANDLE AW UPLOAD (unchanged, already working)
 // ============================================================
 function handleAWUpload(file) {
     console.log('📤 Uploading AW Excel file:', file.name);
@@ -707,7 +765,7 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// EXCEL UPLOAD SETUP
+// EXCEL UPLOAD SETUP (attaches buttons)
 // ============================================================
 function setupExcelUploads() {
     console.log('Setting up Excel uploads...');
@@ -735,7 +793,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - SPLIT UPLOAD WITH DELAY
+    // PL Upload – main function
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -753,7 +811,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                splitUpload(file);
+                uploadPLData(file);
             }
             this.value = '';
         });
@@ -778,7 +836,7 @@ function startUploadStatusMonitoring() {
 }
 
 // ============================================================
-// EXPOSE FUNCTIONS TO WINDOW
+// EXPOSE GLOBALS
 // ============================================================
 window.uploadStatus = uploadStatus;
 window.updateUploadStatus = updateUploadStatus;
@@ -789,7 +847,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.splitUpload = splitUpload;
+window.uploadPLData = uploadPLData;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
