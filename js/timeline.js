@@ -341,7 +341,7 @@ function updateNowIndicatorPosition(timeline) {
         label.className = 'ruler-now-label';
         marker.appendChild(label);
     }
-    label.textContent = '🔴 ' + timeString;
+    label.textContent = '🔴 NOW > ' + timeString;
 }
 
 // ============================================================
@@ -916,7 +916,7 @@ function returnJobToFeed(jobElement) {
     if (!jobData) return;
     
     delete jobSpeeds[jobId];
-    updateJobPLStatus(jobId, 'Unprinted');
+    updateJobPLStatus(jobId, 'Unplanned');
     
     jobData.machine = '';
     if (plDatabase[jobId]) {
@@ -942,7 +942,7 @@ function returnJobToFeed(jobElement) {
         updateStatistics();
         applySmartZoom();
         
-        showNotification(`↩️ "${jobData.name || jobId}" returned to feed (PL: Unprinted)`, 'info');
+        showNotification(`↩️ "${jobData.name || jobId}" returned to feed (PL: Unplanned)`, 'info');
         setTimeout(() => updateAllTimelineScrollPositions(), 300);
     }
 }
