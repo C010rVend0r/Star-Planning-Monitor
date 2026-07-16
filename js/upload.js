@@ -1,4 +1,4 @@
-// script-upload.js - FINAL PRODUCTION (with Supabase saves)
+// script-upload.js - COMPLETE WORKING VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -10,7 +10,7 @@ const uploadStatus = {
     qasem: { lastUpdated: null, status: 'pending' }
 };
 
-const UPLOAD_VALIDITY_MINUTES = 1440; // 24 hours
+const UPLOAD_VALIDITY_MINUTES = 1440;
 let statusCheckInterval = null;
 
 const SHEET_PATTERNS = {
@@ -61,7 +61,6 @@ function updateUploadStatus(uploader) {
     uploadStatus[uploader].lastUpdated = now;
     uploadStatus[uploader].status = 'updated';
     updateStatusIndicators();
-    console.log(`✅ ${uploader} upload status updated at ${now.toLocaleTimeString()}`);
 }
 
 function checkUploadValidity() {
@@ -221,7 +220,7 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// ROBUST TIMELINE ID HELPER
+// TIMELINE ID HELPER
 // ============================================================
 function getTimelineId(machine) {
     if (!machine) return null;
@@ -271,8 +270,6 @@ function setupExcelUploads() {
             if (file) {
                 console.log('AW file selected:', file.name);
                 handleAWUpload(file);
-            } else {
-                console.log('No AW file selected');
             }
             this.value = '';
         });
@@ -285,6 +282,7 @@ function setupExcelUploads() {
     if (uploadBtnPL && fileInputPL) {
         const newBtn = uploadBtnPL.cloneNode(true);
         uploadBtnPL.parentNode.replaceChild(newBtn, uploadBtnPL);
+        newBtn.innerHTML = '<i class="fas fa-file-excel"></i> PL ⚡';
         
         newBtn.addEventListener('click', function(e) {
             e.preventDefault();
@@ -298,8 +296,6 @@ function setupExcelUploads() {
             if (file) {
                 console.log('PL file selected:', file.name);
                 handlePLUpload(file);
-            } else {
-                console.log('No PL file selected');
             }
             this.value = '';
         });
@@ -307,7 +303,7 @@ function setupExcelUploads() {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD (unchanged – already works)
+// HANDLE AW UPLOAD
 // ============================================================
 function handleAWUpload(file) {
     console.log('Uploading AW Excel file:', file.name);
@@ -428,7 +424,7 @@ function handleAWUpload(file) {
             
             console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped`);
             
-            // Save AW data to Supabase (if you have the functions)
+            // Save AW data to Supabase
             try {
                 const awDataToSave = {};
                 for (const [jobNumber, data] of Object.entries(awData)) {
@@ -443,7 +439,7 @@ function handleAWUpload(file) {
                     }
                 }
                 if (Object.keys(awDataToSave).length > 0) {
-                    await supabaseSaveMultipleAWData(awDataToSave);
+                    supabaseSaveMultipleAWData(awDataToSave);
                 }
             } catch (e) {
                 console.warn('Could not save AW data to Supabase:', e);
@@ -462,7 +458,7 @@ function handleAWUpload(file) {
                 updateUploadStatus('mahmoud');
                 updateUploadStatus('raed');
                 updateUploadStatus('rabia');
-                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped (no PL match)`, 'success');
+                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped`, 'success');
             } else {
                 if (detected.mahmoud) updateUploadStatus('mahmoud');
                 if (detected.raed) updateUploadStatus('raed');
@@ -496,12 +492,12 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// HANDLE PL UPLOAD – with Supabase save + timeline mapping
+// HANDLE PL UPLOAD - COMPLETE WORKING VERSION
 // ============================================================
 async function handlePLUpload(file) {
-    console.log('Uploading PL Excel file:', file.name);
+    console.log('📤 Uploading PL Excel file:', file.name);
     
-    showUploadProgress('Reading PL file...', 10);
+    showUploadProgress('📖 Reading PL file...', 10);
     
     const reader = new FileReader();
     
@@ -519,16 +515,16 @@ async function handlePLUpload(file) {
             }
             
             if (!sheet) {
-                showUploadProgress('Sheet "PLAN-WEEK" not found', 100);
+                showUploadProgress('❌ Sheet "PLAN-WEEK" not found', 100);
                 setTimeout(() => hideUploadProgress(), 3000);
                 alert('Sheet "PLAN-WEEK" not found in the uploaded file.');
                 return;
             }
             
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            console.log('PL data rows:', jsonData.length);
+            console.log('📊 PL data rows:', jsonData.length);
             
-            showUploadProgress('Processing PL data...', 30);
+            showUploadProgress('🔄 Processing PL data...', 30);
             
             const rows = jsonData.slice(1);
             let jobsAdded = 0;
@@ -536,17 +532,15 @@ async function handlePLUpload(file) {
             
             // Save existing AW data before clearing
             const savedAWData = { ...awData };
-            console.log('Saved AW data keys:', Object.keys(savedAWData));
+            console.log('💾 Saved AW data keys:', Object.keys(savedAWData));
             
-            // Clear in‑memory databases
+            // Clear in-memory databases
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
             
             // First pass: build jobDatabase and plDatabase in memory
             for (const row of rows) {
-                if (!row || row.length < 25) {
-                    continue;
-                }
+                if (!row || row.length < 25) continue;
                 
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
@@ -594,6 +588,9 @@ async function handlePLUpload(file) {
                         }
                     }
                     jobsWithAW++;
+                    console.log(`Found AW data for ${jobNumber}: ${awStatus}`);
+                } else {
+                    console.log(`No AW data found for ${jobNumber} - setting AW status to "Unknown"`);
                 }
                 
                 const isPlanned = planningStatus === 'Planned';
@@ -688,17 +685,17 @@ async function handlePLUpload(file) {
                 jobsAdded++;
             }
             
-            console.log(`Added ${jobsAdded} jobs to database, ${jobsWithAW} have AW data`);
+            console.log(`✅ Added ${jobsAdded} jobs to database, ${jobsWithAW} have AW data`);
             
-            // ------------------------------------------------------------
-            // SAVE TO SUPABASE – in batches
-            // ------------------------------------------------------------
+            // ============================================================
+            // SAVE TO SUPABASE - in batches
+            // ============================================================
             const client = initSupabase();
             const BATCH_SIZE = 100;
             const jobEntries = Object.entries(jobDatabase);
             let savedCount = 0;
             
-            showUploadProgress(`Saving ${jobEntries.length} jobs to database...`, 40);
+            showUploadProgress(`💾 Saving ${jobEntries.length} jobs to database...`, 40);
             
             for (let i = 0; i < jobEntries.length; i += BATCH_SIZE) {
                 const batch = jobEntries.slice(i, i + BATCH_SIZE);
@@ -789,10 +786,12 @@ async function handlePLUpload(file) {
                 if (Object.keys(jobsToSave).length > 0) {
                     try {
                         await supabaseSaveMultipleJobs(jobsToSave);
+                        console.log(`✅ Saved batch ${Math.floor(i/BATCH_SIZE)+1} jobs`);
                     } catch (e) {
-                        console.warn('Batch jobs save error:', e);
+                        console.warn('⚠️ Batch jobs save error:', e);
                     }
                 }
+                
                 // Save PL data
                 for (const [plId, plData] of Object.entries(plToSave)) {
                     try {
@@ -804,17 +803,20 @@ async function handlePLUpload(file) {
                 
                 savedCount += batch.length;
                 const percent = Math.min(90, 40 + Math.round((savedCount / jobEntries.length) * 50));
-                showUploadProgress(`Saved ${savedCount}/${jobEntries.length} jobs`, percent);
-                console.log(`Saved ${savedCount}/${jobEntries.length} jobs to Supabase`);
+                showUploadProgress(`📊 ${savedCount}/${jobEntries.length} jobs saved`, percent);
             }
             
-            // ------------------------------------------------------------
-            // RELOAD DATA FROM SUPABASE and update UI
-            // ------------------------------------------------------------
-            showUploadProgress('Reloading data from database...', 95);
-            await supabaseSyncAllData(); // this repopulates jobDatabase from Supabase
+            console.log(`✅ All ${savedCount} jobs saved to Supabase`);
             
-            // Clear existing active (non-printed) timeline jobs
+            // ============================================================
+            // RELOAD DATA FROM SUPABASE
+            // ============================================================
+            showUploadProgress('🔄 Reloading data from database...', 95);
+            await supabaseSyncAllData();
+            
+            // ============================================================
+            // CLEAR EXISTING TIMELINE JOBS
+            // ============================================================
             document.querySelectorAll('.timeline').forEach(timeline => {
                 const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
                 jobs.forEach(job => {
@@ -824,12 +826,17 @@ async function handlePLUpload(file) {
                 });
             });
             
-            // Add Planned jobs to timelines
+            // ============================================================
+            // ADD PLANNED JOBS TO TIMELINES
+            // ============================================================
             let timelineJobsAdded = 0;
+            
             for (const [jobId, jobData] of Object.entries(jobDatabase)) {
                 if (jobData.planningStatus !== 'Planned') continue;
+                
                 const machine = jobData.machine;
                 const timelineId = getTimelineId(machine);
+                
                 if (timelineId) {
                     const timeline = document.getElementById(timelineId);
                     if (timeline) {
@@ -838,12 +845,19 @@ async function handlePLUpload(file) {
                             const now = new Date().getTime();
                             addJobToTimelineWithSchedule(jobId, timelineId, now);
                             timelineJobsAdded++;
+                            console.log(`✅ Added ${jobId} to ${timelineId} (Planned)`);
                         }
+                    } else {
+                        console.warn(`⚠️ Timeline ${timelineId} not found for job ${jobId}`);
                     }
+                } else {
+                    console.warn(`⚠️ No timeline mapping for machine: ${machine} (job ${jobId})`);
                 }
             }
             
-            // Update all timelines
+            // ============================================================
+            // UPDATE TIMELINES
+            // ============================================================
             document.querySelectorAll('.timeline').forEach(timeline => {
                 rescheduleTimelineJobs(timeline.id);
                 scaleTimeline(timeline.id);
@@ -855,29 +869,34 @@ async function handlePLUpload(file) {
             updateAllNowIndicators();
             
             updateUploadStatus('qasem');
-            showNotification(`✅ PL uploaded: ${jobsAdded} jobs (${jobsWithAW} with AW data)`, 'success');
             
-            showUploadProgress(`PL upload complete: ${jobsAdded} jobs, ${timelineJobsAdded} on timeline`, 100);
+            showUploadProgress(`✅ ${jobsAdded} jobs uploaded, ${timelineJobsAdded} on timeline`, 100);
             
             setTimeout(() => {
                 hideUploadProgress();
+                populateProductionFeed();
                 updateStatistics();
                 applySmartZoom();
                 setTimeout(() => updateAllTimelineScrollPositions(), 300);
-                console.log('PL upload completed successfully');
+                
+                showNotification(
+                    `✅ ${jobsAdded} jobs uploaded (${timelineJobsAdded} Planned on timeline)`,
+                    'success'
+                );
+                console.log('✅ PL upload completed successfully');
             }, 1500);
             
         } catch (error) {
-            console.error('Error processing PL file:', error);
-            showUploadProgress('Error processing PL file', 100);
+            console.error('❌ Error processing PL file:', error);
+            showUploadProgress('❌ Error processing file', 100);
             setTimeout(() => hideUploadProgress(), 3000);
             alert('Error reading PL Excel file. Please check the file format.\nError: ' + error.message);
         }
     };
     
     reader.onerror = function() {
-        console.error('Error reading PL file');
-        showUploadProgress('Error reading file', 100);
+        console.error('❌ Error reading PL file');
+        showUploadProgress('❌ Error reading file', 100);
         setTimeout(() => hideUploadProgress(), 3000);
         alert('Error reading file. Please try again.');
     };
