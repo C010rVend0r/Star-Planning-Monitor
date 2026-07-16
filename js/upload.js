@@ -1,6 +1,6 @@
-// script-upload.js - UNIFIED SMART UPLOAD
+// script-upload.js - COMPLETE VERSION WITH BULK UPLOAD
 // ============================================================
-// UPLOAD STATUS TRACKING & FAST PROCESSING
+// UPLOAD STATUS TRACKING & FAST BULK PROCESSING
 // ============================================================
 
 // Upload status tracking
@@ -11,7 +11,7 @@ const uploadStatus = {
     qasem: { lastUpdated: null, status: 'pending' }
 };
 
-const UPLOAD_VALIDITY_MINUTES = 1440; // 24 hours
+const UPLOAD_VALIDITY_MINUTES = 1440; // 24 hours (changed from 1 minute)
 let statusCheckInterval = null;
 
 // Sheet detection patterns
@@ -270,12 +270,12 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// SMART PL UPLOAD - SINGLE UNIFIED FUNCTION
+// BULK PL UPLOAD - SUPER FAST VERSION
 // ============================================================
-async function smartPLUpload(file) {
-    console.log('🚀 SMART PL UPLOAD STARTED:', file.name);
+async function bulkPLUpload(file) {
+    console.log('⚡ BULK PL UPLOAD STARTED:', file.name);
     
-    showUploadProgress('📖 Reading PL file...', 5);
+    showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
     
@@ -304,227 +304,228 @@ async function smartPLUpload(file) {
             console.log(`📊 Processing ${rows.length} rows...`);
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
-            // STEP 1: Check for existing data
-            const existingJobs = await supabaseLoadAllJobs();
-            const existingJobMap = new Map();
-            const completeJobNumbers = new Set();
+            // Build ALL jobs in bulk arrays
+            const allJobs = [];
+            const allPLData = [];
+            let skippedComplete = 0;
+            let skippedInvalid = 0;
             
+            // Get existing complete jobs
+            const existingJobs = await supabaseLoadAllJobs();
+            const completeJobNumbers = new Set();
             if (existingJobs && existingJobs.length > 0) {
                 existingJobs.forEach(job => {
-                    existingJobMap.set(job.job_number, job);
                     if (job.planning_status === 'Complete' || job.planning_status === 'Printed') {
                         completeJobNumbers.add(job.job_number);
                     }
                 });
-                console.log(`📌 Found ${existingJobs.length} existing jobs, ${completeJobNumbers.size} are COMPLETE`);
+                console.log(`📌 Found ${completeJobNumbers.size} COMPLETE jobs (will skip)`);
             }
             
-            // STEP 2: Filter and process jobs
-            const BATCH_SIZE = 200;
-            let totalProcessed = 0;
-            let totalSkippedComplete = 0;
-            let totalSkippedInvalid = 0;
-            let totalNewJobs = 0;
-            let totalUpdatedJobs = 0;
-            const startTime = Date.now();
+            // Build data arrays
+            for (const row of rows) {
+                if (!row || row.length < 25) {
+                    skippedInvalid++;
+                    continue;
+                }
+                
+                const jobNumber = String(row[0] || '').trim();
+                if (!jobNumber) {
+                    skippedInvalid++;
+                    continue;
+                }
+                
+                const planningStatus = String(row[5] || '').trim() || 'Unplanned';
+                
+                // Skip if already COMPLETE
+                if (completeJobNumbers.has(jobNumber) && planningStatus === 'Complete') {
+                    skippedComplete++;
+                    continue;
+                }
+                
+                const jobName = String(row[1] || '').trim() || 'Unnamed';
+                const newPlat = String(row[2] || '').trim() || '';
+                const materialAvailability = String(row[4] || '').trim() || '';
+                const delivered = String(row[6] || '').trim() || '';
+                const delivered2 = String(row[7] || '').trim() || '';
+                const machine = String(row[8] || '').trim() || '';
+                const cuttingMethod = String(row[10] || '').trim() || '';
+                const quantity = parseFloat(row[11]) || 0;
+                const film = String(row[12] || '').trim() || '';
+                const thickness = String(row[13] || '').trim() || '';
+                const materialType = String(row[14] || '').trim() || '';
+                const machineSpeed = parseFloat(row[15]) || 200;
+                const meters = parseFloat(row[16]) || 0;
+                const setupTime = parseFloat(row[17]) || 120;
+                const requiredTime = parseFloat(row[18]) || 0;
+                const plannedSpeed = parseFloat(row[19]) || 200;
+                const actualSpeed = parseFloat(row[20]) || 200;
+                const plannedSetup = parseFloat(row[21]) || 120;
+                const actualSetup = parseFloat(row[22]) || 0;
+                const downtime = parseFloat(row[23]) || 0;
+                const printingDuration = parseFloat(row[24]) || 0;
+                
+                const jobId = `job-${jobNumber}`;
+                const isComplete = planningStatus === 'Complete' || planningStatus === 'Printed';
+                
+                // Get AW status from existing data if available
+                let awStatus = 'Unknown';
+                let statusDate = new Date(1900, 0, 1).toISOString();
+                let estimatedDate = null;
+                
+                const existingJob = existingJobs?.find(j => j.job_number === jobNumber);
+                if (existingJob) {
+                    awStatus = existingJob.aw_status || 'Unknown';
+                    statusDate = existingJob.status_date || new Date(1900, 0, 1).toISOString();
+                    estimatedDate = existingJob.estimated_date || null;
+                }
+                
+                let effectiveStatus = isComplete ? 'Complete' : (awStatus !== 'Unknown' ? awStatus : planningStatus);
+                
+                // Add to jobs array
+                allJobs.push({
+                    job_id: jobId,
+                    job_number: jobNumber,
+                    name: jobName,
+                    status: effectiveStatus,
+                    aw_status: awStatus,
+                    raw_aw_status: awStatus,
+                    planning_status: planningStatus,
+                    status_date: statusDate,
+                    estimated_date: estimatedDate,
+                    setup: setupTime || plannedSetup || 120,
+                    quantity: meters || quantity || 0,
+                    machine: machine || '',
+                    is_complete: isComplete,
+                    is_planned: planningStatus === 'Planned',
+                    is_unplanned: planningStatus === 'Unplanned',
+                    is_deleted: planningStatus === 'Deleted' || planningStatus === 'PL-Deleted',
+                    is_hold: planningStatus === 'Hold' || planningStatus === 'PL-Hold',
+                    new_plat: newPlat,
+                    material_availability: materialAvailability,
+                    delivered: delivered,
+                    delivered2: delivered2,
+                    cutting_method: cuttingMethod,
+                    film: film,
+                    thickness: thickness,
+                    material_type: materialType,
+                    machine_speed: machineSpeed,
+                    meters: meters,
+                    setup_time: setupTime,
+                    required_time: requiredTime,
+                    planned_speed: plannedSpeed,
+                    actual_speed: actualSpeed,
+                    planned_setup: plannedSetup,
+                    actual_setup: actualSetup,
+                    downtime: downtime,
+                    printing_duration: printingDuration
+                });
+                
+                // Add to PL data array
+                allPLData.push({
+                    job_id: jobId,
+                    job_number: jobNumber,
+                    job_name: jobName,
+                    new_plat: newPlat,
+                    prepress_status: awStatus || 'Unknown',
+                    material_availability: materialAvailability,
+                    planning_status: planningStatus,
+                    delivered: delivered,
+                    delivered2: delivered2,
+                    machine: machine,
+                    cutting_method: cuttingMethod,
+                    quantity: quantity,
+                    film: film,
+                    thickness: thickness,
+                    material_type: materialType,
+                    machine_speed: machineSpeed,
+                    meters: meters,
+                    setup_time: setupTime,
+                    required_time: requiredTime,
+                    planned_speed: plannedSpeed,
+                    actual_speed: actualSpeed,
+                    planned_setup: plannedSetup,
+                    actual_setup: actualSetup,
+                    downtime: downtime,
+                    printing_duration: printingDuration,
+                    is_complete: isComplete,
+                    is_planned: planningStatus === 'Planned',
+                    is_unplanned: planningStatus === 'Unplanned',
+                    is_deleted: planningStatus === 'Deleted',
+                    is_hold: planningStatus === 'Hold',
+                    status_date: statusDate,
+                    estimated_date: estimatedDate
+                });
+            }
             
-            // Process in batches
-            for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-                const batch = rows.slice(i, i + BATCH_SIZE);
-                const jobsToSave = {};
-                const plDataToSave = {};
-                let batchProcessed = 0;
+            const totalToProcess = allJobs.length;
+            console.log(`📊 ${totalToProcess} jobs to upload (${skippedComplete} complete skipped, ${skippedInvalid} invalid)`);
+            
+            if (totalToProcess === 0) {
+                showUploadProgress('✅ All jobs already up to date!', 100);
+                setTimeout(() => {
+                    hideUploadProgress();
+                    showNotification('✅ All jobs are already in the database!', 'success');
+                }, 1000);
+                return;
+            }
+            
+            showUploadProgress(`💾 Uploading ${totalToProcess} jobs in bulk...`, 20);
+            
+            const startTime = Date.now();
+            const client = initSupabase();
+            const CHUNK_SIZE = 500;
+            
+            // STEP 1: Bulk upsert jobs
+            let jobsInserted = 0;
+            for (let i = 0; i < allJobs.length; i += CHUNK_SIZE) {
+                const chunk = allJobs.slice(i, i + CHUNK_SIZE);
+                const { error } = await client
+                    .from('jobs')
+                    .upsert(chunk, { onConflict: 'job_id' });
                 
-                for (const row of batch) {
-                    if (!row || row.length < 25) {
-                        totalSkippedInvalid++;
-                        continue;
-                    }
-                    
-                    const jobNumber = String(row[0] || '').trim();
-                    if (!jobNumber) {
-                        totalSkippedInvalid++;
-                        continue;
-                    }
-                    
-                    const planningStatus = String(row[5] || '').trim() || 'Unplanned';
-                    
-                    // ⚡ SKIP if already COMPLETE in database
-                    if (completeJobNumbers.has(jobNumber) && planningStatus === 'Complete') {
-                        totalSkippedComplete++;
-                        continue;
-                    }
-                    
-                    const jobName = String(row[1] || '').trim();
-                    const newPlat = String(row[2] || '').trim();
-                    const materialAvailability = String(row[4] || '').trim();
-                    const delivered = String(row[6] || '').trim();
-                    const delivered2 = String(row[7] || '').trim();
-                    const machine = String(row[8] || '').trim();
-                    const cuttingMethod = String(row[10] || '').trim();
-                    const quantity = parseFloat(row[11]) || 0;
-                    const film = String(row[12] || '').trim();
-                    const thickness = String(row[13] || '').trim();
-                    const materialType = String(row[14] || '').trim();
-                    const machineSpeed = parseFloat(row[15]) || 200;
-                    const meters = parseFloat(row[16]) || 0;
-                    const setupTime = parseFloat(row[17]) || 120;
-                    const requiredTime = parseFloat(row[18]) || 0;
-                    const plannedSpeed = parseFloat(row[19]) || 200;
-                    const actualSpeed = parseFloat(row[20]) || 200;
-                    const plannedSetup = parseFloat(row[21]) || 120;
-                    const actualSetup = parseFloat(row[22]) || 0;
-                    const downtime = parseFloat(row[23]) || 0;
-                    const printingDuration = parseFloat(row[24]) || 0;
-                    
-                    const jobId = `job-${jobNumber}`;
-                    
-                    // Check if job exists and get AW data
-                    let awStatus = 'Unknown';
-                    let statusDate = new Date(1900, 0, 1).toISOString();
-                    let estimatedDate = null;
-                    const existingJob = existingJobMap.get(jobNumber);
-                    
-                    if (existingJob) {
-                        awStatus = existingJob.aw_status || 'Unknown';
-                        statusDate = existingJob.status_date || new Date(1900, 0, 1).toISOString();
-                        estimatedDate = existingJob.estimated_date || null;
-                        totalUpdatedJobs++;
-                    } else {
-                        totalNewJobs++;
-                    }
-                    
-                    // Determine effective status
-                    let effectiveStatus = awStatus;
-                    if (planningStatus === 'Complete' || planningStatus === 'Printed') {
-                        effectiveStatus = 'Complete';
-                    } else if (planningStatus === 'Planned') {
-                        effectiveStatus = 'Planned';
-                    } else if (planningStatus === 'Unplanned') {
-                        effectiveStatus = 'Unplanned';
-                    } else if (planningStatus === 'Deleted' || planningStatus === 'PL-Deleted') {
-                        effectiveStatus = 'PL-Deleted';
-                    } else if (planningStatus === 'Hold' || planningStatus === 'PL-Hold') {
-                        effectiveStatus = 'PL-Hold';
-                    } else if (awStatus === 'Unknown') {
-                        effectiveStatus = planningStatus || 'Unplanned';
-                    }
-                    
-                    // Save to jobs table
-                    jobsToSave[jobId] = {
-                        job_id: jobId,
-                        job_number: jobNumber,
-                        name: jobName || 'Unnamed',
-                        status: effectiveStatus,
-                        aw_status: awStatus,
-                        raw_aw_status: awStatus,
-                        planning_status: planningStatus,
-                        status_date: statusDate,
-                        estimated_date: estimatedDate,
-                        setup: setupTime || plannedSetup || 120,
-                        quantity: meters || quantity || 0,
-                        machine: machine || '',
-                        is_complete: planningStatus === 'Complete' || planningStatus === 'Printed',
-                        is_planned: planningStatus === 'Planned',
-                        is_unplanned: planningStatus === 'Unplanned',
-                        is_deleted: planningStatus === 'Deleted' || planningStatus === 'PL-Deleted',
-                        is_hold: planningStatus === 'Hold' || planningStatus === 'PL-Hold',
-                        new_plat: newPlat,
-                        material_availability: materialAvailability,
-                        delivered: delivered,
-                        delivered2: delivered2,
-                        cutting_method: cuttingMethod,
-                        film: film,
-                        thickness: thickness,
-                        material_type: materialType,
-                        machine_speed: machineSpeed,
-                        meters: meters,
-                        setup_time: setupTime,
-                        required_time: requiredTime,
-                        planned_speed: plannedSpeed,
-                        actual_speed: actualSpeed,
-                        planned_setup: plannedSetup,
-                        actual_setup: actualSetup,
-                        downtime: downtime,
-                        printing_duration: printingDuration
-                    };
-                    
-                    // Save to PL table
-                    plDataToSave[jobId] = {
-                        job_id: jobId,
-                        job_number: jobNumber,
-                        job_name: jobName || 'Unnamed',
-                        new_plat: newPlat,
-                        prepress_status: awStatus || 'Unknown',
-                        material_availability: materialAvailability,
-                        planning_status: planningStatus,
-                        delivered: delivered,
-                        delivered2: delivered2,
-                        machine: machine,
-                        cutting_method: cuttingMethod,
-                        quantity: quantity,
-                        film: film,
-                        thickness: thickness,
-                        material_type: materialType,
-                        machine_speed: machineSpeed,
-                        meters: meters,
-                        setup_time: setupTime,
-                        required_time: requiredTime,
-                        planned_speed: plannedSpeed,
-                        actual_speed: actualSpeed,
-                        planned_setup: plannedSetup,
-                        actual_setup: actualSetup,
-                        downtime: downtime,
-                        printing_duration: printingDuration,
-                        is_complete: planningStatus === 'Complete',
-                        is_planned: planningStatus === 'Planned',
-                        is_unplanned: planningStatus === 'Unplanned',
-                        is_deleted: planningStatus === 'Deleted',
-                        is_hold: planningStatus === 'Hold',
-                        status_date: statusDate,
-                        estimated_date: estimatedDate
-                    };
-                    
-                    batchProcessed++;
-                    totalProcessed++;
-                }
+                if (error) throw error;
                 
-                // Save batch
-                if (Object.keys(jobsToSave).length > 0) {
-                    await supabaseSaveMultipleJobs(jobsToSave);
-                    for (const [jobId, data] of Object.entries(plDataToSave)) {
-                        await supabaseSavePLData(jobId, data);
-                    }
-                }
-                
-                // Update progress
-                const percent = Math.min(100, Math.round((totalProcessed / rows.length) * 100));
+                jobsInserted += chunk.length;
+                const percent = Math.min(90, Math.round((jobsInserted / totalToProcess) * 90));
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
-                const summary = `📊 ${totalProcessed}/${rows.length} rows (${totalNewJobs} new, ${totalUpdatedJobs} updated, ${totalSkippedComplete} complete skipped)`;
-                showUploadProgress(`${summary} - ${elapsed}s`, percent);
-                console.log(`✅ ${percent}% - ${summary}`);
+                showUploadProgress(`📊 ${jobsInserted}/${totalToProcess} jobs (${elapsed}s)`, percent);
+                console.log(`✅ ${jobsInserted}/${totalToProcess} jobs inserted (${elapsed}s)`);
+            }
+            
+            // STEP 2: Bulk upsert PL data
+            let plInserted = 0;
+            for (let i = 0; i < allPLData.length; i += CHUNK_SIZE) {
+                const chunk = allPLData.slice(i, i + CHUNK_SIZE);
+                const { error } = await client
+                    .from('pl_database')
+                    .upsert(chunk, { onConflict: 'job_id' });
+                
+                if (error) throw error;
+                
+                plInserted += chunk.length;
+                const percent = Math.min(95, 90 + Math.round((plInserted / allPLData.length) * 10));
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                showUploadProgress(`📊 ${plInserted}/${allPLData.length} PL records (${elapsed}s)`, percent);
             }
             
             const totalTime = Math.round((Date.now() - startTime) / 1000);
             
-            // Final summary
-            const finalSummary = `
-╔═══════════════════════════════════════════════════════╗
-║                    📊 UPLOAD SUMMARY                  ║
-╠═══════════════════════════════════════════════════════╣
-║  ✅ Total processed:  ${totalProcessed} jobs          ║
-║  🆕 New jobs:         ${totalNewJobs}                 ║
-║  🔄 Updated jobs:     ${totalUpdatedJobs}             ║
-║  ⏭️  Complete skipped: ${totalSkippedComplete}        ║
-║  ⏱️  Time:             ${totalTime} seconds           ║
-╚═══════════════════════════════════════════════════════╝
-`;
-            console.log(finalSummary);
-            
             // Update upload status
             updateUploadStatus('qasem');
             
-            showUploadProgress(`✅ ${totalProcessed} jobs processed (${totalNewJobs} new, ${totalUpdatedJobs} updated)`, 100);
+            const summary = `
+✅ BULK UPLOAD COMPLETE!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Jobs uploaded:  ${totalToProcess}
+📋 PL records:     ${allPLData.length}
+⏭️  Complete skipped: ${skippedComplete}
+⏱️  Time:            ${totalTime} seconds
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+            console.log(summary);
+            
+            showUploadProgress(`✅ ${totalToProcess} jobs uploaded in ${totalTime}s!`, 100);
             
             // Refresh UI
             setTimeout(async () => {
@@ -532,11 +533,11 @@ async function smartPLUpload(file) {
                 populateProductionFeed();
                 hideUploadProgress();
                 showNotification(
-                    `✅ ${totalProcessed} jobs processed: ${totalNewJobs} new, ${totalUpdatedJobs} updated, ${totalSkippedComplete} complete jobs skipped`,
+                    `✅ ${totalToProcess} jobs uploaded (${skippedComplete} complete jobs skipped) in ${totalTime}s`,
                     'success'
                 );
                 updateStatistics();
-            }, 1000);
+            }, 500);
             
         } catch (error) {
             console.error('❌ Upload failed:', error);
@@ -549,12 +550,97 @@ async function smartPLUpload(file) {
 }
 
 // ============================================================
-// AW UPLOAD - SMART, SKIPS COMPLETE JOBS
+// EXCEL UPLOAD SETUP
+// ============================================================
+function setupExcelUploads() {
+    console.log('Setting up Excel uploads...');
+    
+    // AW Upload
+    const uploadBtnAW = document.getElementById('upload-excel-aw');
+    const fileInputAW = document.getElementById('file-input-aw');
+    
+    if (uploadBtnAW && fileInputAW) {
+        console.log('AW upload elements found');
+        
+        const newBtn = uploadBtnAW.cloneNode(true);
+        uploadBtnAW.parentNode.replaceChild(newBtn, uploadBtnAW);
+        
+        newBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('AW Upload button clicked - triggering file input');
+            fileInputAW.click();
+        });
+        
+        fileInputAW.addEventListener('change', function(e) {
+            const file = this.files[0];
+            if (file) {
+                console.log('AW file selected:', file.name);
+                handleAWUpload(file);
+            } else {
+                console.log('No AW file selected');
+            }
+            this.value = '';
+        });
+        
+        document.addEventListener('dragover', function(e) {
+            e.preventDefault();
+        });
+        
+        document.addEventListener('drop', function(e) {
+            e.preventDefault();
+        });
+    } else {
+        console.warn('AW upload elements not found:', 
+            'button:', !!uploadBtnAW, 
+            'input:', !!fileInputAW);
+    }
+    
+    // PL Upload - Using BULK version (SUPER FAST)
+    const uploadBtnPL = document.getElementById('upload-excel-pl');
+    const fileInputPL = document.getElementById('file-input-pl');
+    
+    if (uploadBtnPL && fileInputPL) {
+        console.log('PL upload elements found');
+        
+        const newBtn = uploadBtnPL.cloneNode(true);
+        uploadBtnPL.parentNode.replaceChild(newBtn, uploadBtnPL);
+        
+        // Add visual indicator that it's fast
+        newBtn.innerHTML = '<i class="fas fa-file-excel"></i> PL ⚡';
+        
+        newBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('PL Upload button clicked - triggering file input');
+            fileInputPL.click();
+        });
+        
+        fileInputPL.addEventListener('change', function(e) {
+            const file = this.files[0];
+            if (file) {
+                console.log('PL file selected:', file.name);
+                showUploadProgress('⏳ Processing file...', 5);
+                bulkPLUpload(file);  // ← BULK UPLOAD - SUPER FAST!
+            } else {
+                console.log('No PL file selected');
+            }
+            this.value = '';
+        });
+    } else {
+        console.warn('PL upload elements not found:', 
+            'button:', !!uploadBtnPL, 
+            'input:', !!fileInputPL);
+    }
+}
+
+// ============================================================
+// HANDLE AW UPLOAD - UPDATED WITH SUPABASE SAVE
 // ============================================================
 function handleAWUpload(file) {
-    console.log('📤 Uploading AW Excel file:', file.name);
+    console.log('Uploading AW Excel file:', file.name);
     
-    showUploadProgress('📖 Reading AW file...', 10);
+    showUploadProgress('Reading AW file...', 10);
     
     const reader = new FileReader();
     
@@ -572,7 +658,7 @@ function handleAWUpload(file) {
             const firstSheet = workbook.Sheets[sheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
             
-            showUploadProgress('🔄 Processing AW data...', 30);
+            showUploadProgress('Processing AW data...', 50);
             
             const rows = jsonData.slice(3);
             let awJobsFound = 0;
@@ -592,7 +678,7 @@ function handleAWUpload(file) {
                         completeJobNumbers.add(job.job_number);
                     }
                 });
-                console.log(`📌 ${completeJobNumbers.size} COMPLETE jobs (AW updates will skip these)`);
+                console.log(`📌 ${completeJobNumbers.size} COMPLETE jobs (AW will skip these)`);
             }
             
             for (const row of rows) {
@@ -609,18 +695,20 @@ function handleAWUpload(file) {
                     continue;
                 }
                 
+                console.log(`Processing AW job: ${jobNumber}, status: "${status}"`);
+                
                 let statusDate = null;
                 
                 const statusDateMap = {
-                    '1. Under Job-Study': { index: 32 },
-                    '2. Under QC Check': { index: 34 },
-                    '3. S.C Approval': { index: 36 },
-                    '4. Need S.C Approval': { index: 38 },
-                    '5. Working on Cromalin': { index: 40 },
-                    '6. Need Cromalin Approval': { index: 42 },
-                    '7. Cromalin Approval': { index: 44 },
-                    '8. Repro: Plate Making': { index: 46 },
-                    '9. Plates are Ready': { index: 48 }
+                    '1. Under Job-Study': { index: 32, label: 'AG' },
+                    '2. Under QC Check': { index: 34, label: 'AI' },
+                    '3. S.C Approval': { index: 36, label: 'AK' },
+                    '4. Need S.C Approval': { index: 38, label: 'AM' },
+                    '5. Working on Cromalin': { index: 40, label: 'AO' },
+                    '6. Need Cromalin Approval': { index: 42, label: 'AQ' },
+                    '7. Cromalin Approval': { index: 44, label: 'AS' },
+                    '8. Repro: Plate Making': { index: 46, label: 'AU' },
+                    '9. Plates are Ready': { index: 48, label: 'AW' }
                 };
                 
                 if (status && statusDateMap[status]) {
@@ -654,7 +742,6 @@ function handleAWUpload(file) {
                     estimatedDate = calculateEstimatedDate(statusDate, 2);
                 }
                 
-                // Store AW data
                 awData[jobNumber] = {
                     status: rawStatus,
                     rawStatus: rawStatus,
@@ -674,6 +761,7 @@ function handleAWUpload(file) {
                 let jobId = findJobIdByNumber(jobNumber);
                 
                 if (jobId) {
+                    console.log(`Found matching job: ${jobId} - updating AW status only`);
                     if (jobDatabase[jobId]) {
                         jobDatabase[jobId].awStatus = rawStatus;
                         jobDatabase[jobId].status = rawStatus;
@@ -699,22 +787,23 @@ function handleAWUpload(file) {
                         awJobsFound++;
                     }
                 } else {
+                    console.log(`No matching job found for ${jobNumber} - skipping AW-only creation`);
                     awJobsSkipped++;
                 }
             }
             
-            console.log(`AW results: ${awJobsFound} updated, ${awJobsSkipped} skipped (complete jobs)`);
+            console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped (complete jobs)`);
             
             // Save to Supabase
             try {
                 if (Object.keys(awDataToSave).length > 0) {
                     await supabaseSaveMultipleAWData(awDataToSave);
-                    console.log(`✅ ${Object.keys(awDataToSave).length} AW records saved`);
+                    console.log(`✅ ${Object.keys(awDataToSave).length} AW records saved to Supabase`);
                 }
                 
                 if (Object.keys(jobsToUpdate).length > 0) {
                     await supabaseSaveMultipleJobs(jobsToUpdate);
-                    console.log(`✅ ${Object.keys(jobsToUpdate).length} jobs updated`);
+                    console.log(`✅ ${Object.keys(jobsToUpdate).length} jobs updated in Supabase`);
                 }
             } catch (saveError) {
                 console.error('❌ Error saving to Supabase:', saveError);
@@ -735,89 +824,41 @@ function handleAWUpload(file) {
                 updateUploadStatus('rabia');
                 showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped (complete)`, 'success');
             } else {
-                if (detected.mahmoud) updateUploadStatus('mahmoud');
-                if (detected.raed) updateUploadStatus('raed');
-                if (detected.rabia) updateUploadStatus('rabia');
+                if (detected.mahmoud) {
+                    updateUploadStatus('mahmoud');
+                }
+                if (detected.raed) {
+                    updateUploadStatus('raed');
+                }
+                if (detected.rabia) {
+                    updateUploadStatus('rabia');
+                }
                 showNotification(`✅ AW data uploaded - ${awJobsFound} jobs updated`, 'success');
             }
             
-            showUploadProgress(`✅ AW complete: ${awJobsFound} updated, ${awJobsSkipped} skipped`, 100);
+            showUploadProgress(`AW upload complete: ${awJobsFound} updated, ${awJobsSkipped} skipped`, 100);
             
             setTimeout(() => {
                 hideUploadProgress();
-                console.log('AW upload completed');
+                console.log('AW upload completed successfully');
             }, 1500);
             
         } catch (error) {
             console.error('Error processing AW file:', error);
-            hideUploadProgress();
-            alert('Error reading AW file: ' + error.message);
+            showUploadProgress('Error processing AW file', 100);
+            setTimeout(() => hideUploadProgress(), 3000);
+            alert('Error reading AW Excel file. Please check the file format.\nError: ' + error.message);
         }
     };
     
     reader.onerror = function() {
         console.error('Error reading AW file');
-        hideUploadProgress();
+        showUploadProgress('Error reading file', 100);
+        setTimeout(() => hideUploadProgress(), 3000);
         alert('Error reading file. Please try again.');
     };
     
     reader.readAsArrayBuffer(file);
-}
-
-// ============================================================
-// EXCEL UPLOAD SETUP - UNIFIED
-// ============================================================
-function setupExcelUploads() {
-    console.log('Setting up Excel uploads...');
-    
-    // AW Upload
-    const uploadBtnAW = document.getElementById('upload-excel-aw');
-    const fileInputAW = document.getElementById('file-input-aw');
-    
-    if (uploadBtnAW && fileInputAW) {
-        const newBtn = uploadBtnAW.cloneNode(true);
-        uploadBtnAW.parentNode.replaceChild(newBtn, uploadBtnAW);
-        
-        newBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            fileInputAW.click();
-        });
-        
-        fileInputAW.addEventListener('change', function(e) {
-            const file = this.files[0];
-            if (file) {
-                console.log('AW file selected:', file.name);
-                handleAWUpload(file);
-            }
-            this.value = '';
-        });
-    }
-    
-    // PL Upload - UNIFIED SMART VERSION
-    const uploadBtnPL = document.getElementById('upload-excel-pl');
-    const fileInputPL = document.getElementById('file-input-pl');
-    
-    if (uploadBtnPL && fileInputPL) {
-        const newBtn = uploadBtnPL.cloneNode(true);
-        uploadBtnPL.parentNode.replaceChild(newBtn, uploadBtnPL);
-        
-        // Add smart indicator
-        newBtn.innerHTML = '<i class="fas fa-file-excel"></i> PL <span style="font-size:9px;background:#28a745;color:white;padding:1px 6px;border-radius:8px;margin-left:4px;">SMART</span>';
-        
-        newBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            fileInputPL.click();
-        });
-        
-        fileInputPL.addEventListener('change', function(e) {
-            const file = this.files[0];
-            if (file) {
-                console.log('PL file selected:', file.name);
-                smartPLUpload(file);  // ← UNIFIED smart upload
-            }
-            this.value = '';
-        });
-    }
 }
 
 // ============================================================
@@ -849,7 +890,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.smartPLUpload = smartPLUpload;
+window.bulkPLUpload = bulkPLUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
