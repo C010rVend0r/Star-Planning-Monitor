@@ -464,7 +464,7 @@ async function splitUpload(file) {
             
             console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║                    ✅ UPLOAD COMPLETE!                        ║
+║                    ✅🔴🔴🔴🔴 UPLOAD COMPLETE!                        ║
 ╠════════════════════════════════════════════════════════════════╣
 ║  📊 Unique jobs in file:  ${uniqueJobs.length}                ║
 ║  📊 Confirmed in DB:      ${actualCount}                      ║
