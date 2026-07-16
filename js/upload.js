@@ -1,4 +1,4 @@
-// script-upload.js - CLEAN WORKING VERSION
+// script-upload.js - TRUE BULK UPLOAD (SUPER FAST)
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -250,32 +250,26 @@ function getTimelineId(machine) {
 function setupExcelUploads() {
     console.log('Setting up Excel uploads...');
     
-    // AW Upload
     const uploadBtnAW = document.getElementById('upload-excel-aw');
     const fileInputAW = document.getElementById('file-input-aw');
     
     if (uploadBtnAW && fileInputAW) {
         const newBtn = uploadBtnAW.cloneNode(true);
         uploadBtnAW.parentNode.replaceChild(newBtn, uploadBtnAW);
-        
         newBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('AW Upload button clicked - triggering file input');
             fileInputAW.click();
         });
-        
         fileInputAW.addEventListener('change', function(e) {
             const file = this.files[0];
             if (file) {
-                console.log('AW file selected:', file.name);
                 handleAWUpload(file);
             }
             this.value = '';
         });
     }
     
-    // PL Upload
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -287,14 +281,12 @@ function setupExcelUploads() {
         newBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('PL Upload button clicked - triggering file input');
             fileInputPL.click();
         });
         
         fileInputPL.addEventListener('change', function(e) {
             const file = this.files[0];
             if (file) {
-                console.log('PL file selected:', file.name);
                 handlePLUpload(file);
             }
             this.value = '';
@@ -307,7 +299,6 @@ function setupExcelUploads() {
 // ============================================================
 function handleAWUpload(file) {
     console.log('Uploading AW Excel file:', file.name);
-    
     showUploadProgress('Reading AW file...', 10);
     
     const reader = new FileReader();
@@ -318,34 +309,23 @@ function handleAWUpload(file) {
             const workbook = XLSX.read(data, { type: 'array' });
             
             const sheetNames = workbook.SheetNames;
-            console.log('AW Sheets found:', sheetNames);
-            
             const detected = detectUploader(sheetNames);
-            console.log('Detected uploaders:', detected);
-            
             const firstSheet = workbook.Sheets[sheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
             
             showUploadProgress('Processing AW data...', 50);
-            
             const rows = jsonData.slice(3);
             let awJobsFound = 0;
             let awJobsSkipped = 0;
-            
             const savedFilterStatuses = new Set(filterStatuses);
             
             rows.forEach((row) => {
                 if (!row || row.length < 10) return;
-                
                 const jobNumber = String(row[5] || '').trim();
                 const status = String(row[8] || '').trim();
-                
                 if (!jobNumber) return;
                 
-                console.log(`Processing AW job: ${jobNumber}, status: "${status}"`);
-                
                 let statusDate = null;
-                
                 const statusDateMap = {
                     '1. Under Job-Study': { index: 32 },
                     '2. Under QC Check': { index: 34 },
@@ -361,29 +341,20 @@ function handleAWUpload(file) {
                 if (status && statusDateMap[status]) {
                     const dateInfo = statusDateMap[status];
                     const dateValue = row[dateInfo.index];
-                    
                     if (dateValue !== undefined && dateValue !== null && dateValue !== '') {
                         if (typeof dateValue === 'number' && dateValue > 0) {
                             const excelEpoch = new Date(1899, 11, 30);
                             const jsDate = new Date(excelEpoch.getTime() + dateValue * 86400000);
-                            if (!isNaN(jsDate.getTime())) {
-                                statusDate = jsDate;
-                            }
+                            if (!isNaN(jsDate.getTime())) statusDate = jsDate;
                         } else if (typeof dateValue === 'string') {
                             const parsed = new Date(dateValue);
-                            if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) {
-                                statusDate = parsed;
-                            }
+                            if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) statusDate = parsed;
                         }
                     }
                 }
-                
-                if (!statusDate) {
-                    statusDate = new Date(1900, 0, 1);
-                }
+                if (!statusDate) statusDate = new Date(1900, 0, 1);
                 
                 let rawStatus = status || 'Unknown';
-                
                 let estimatedDate = null;
                 if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
                     estimatedDate = calculateEstimatedDate(statusDate, 2);
@@ -398,23 +369,19 @@ function handleAWUpload(file) {
                 };
                 
                 let jobId = findJobIdByNumber(jobNumber);
-                
                 if (jobId) {
-                    console.log(`Found matching job: ${jobId} - updating AW status only`);
                     if (jobDatabase[jobId]) {
                         jobDatabase[jobId].awStatus = rawStatus;
                         jobDatabase[jobId].status = rawStatus;
                         jobDatabase[jobId].statusDate = statusDate.toISOString();
                         jobDatabase[jobId].rawAWStatus = rawStatus;
                         jobDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
-                        
                         if (plDatabase[jobId]) {
                             plDatabase[jobId].prepressStatus = rawStatus;
                             plDatabase[jobId].statusDate = statusDate.toISOString();
                             plDatabase[jobId].rawAWStatus = rawStatus;
                             plDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
                         }
-                        
                         awJobsFound++;
                     }
                 } else {
@@ -422,9 +389,9 @@ function handleAWUpload(file) {
                 }
             });
             
-            console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped`);
+            filterStatuses = savedFilterStatuses;
             
-            // Save AW data to Supabase
+            // Save AW data to Supabase in bulk
             try {
                 const awDataToSave = {};
                 for (const [jobNumber, data] of Object.entries(awData)) {
@@ -441,11 +408,7 @@ function handleAWUpload(file) {
                 if (Object.keys(awDataToSave).length > 0) {
                     supabaseSaveMultipleAWData(awDataToSave);
                 }
-            } catch (e) {
-                console.warn('Could not save AW data to Supabase:', e);
-            }
-            
-            filterStatuses = savedFilterStatuses;
+            } catch (e) {}
             
             populateProductionFeed();
             applyFilter();
@@ -458,7 +421,7 @@ function handleAWUpload(file) {
                 updateUploadStatus('mahmoud');
                 updateUploadStatus('raed');
                 updateUploadStatus('rabia');
-                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped`, 'success');
+                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated`, 'success');
             } else {
                 if (detected.mahmoud) updateUploadStatus('mahmoud');
                 if (detected.raed) updateUploadStatus('raed');
@@ -466,12 +429,8 @@ function handleAWUpload(file) {
                 showNotification(`✅ AW data uploaded - ${awJobsFound} jobs updated`, 'success');
             }
             
-            showUploadProgress(`AW upload complete: ${awJobsFound} updated, ${awJobsSkipped} skipped`, 100);
-            
-            setTimeout(() => {
-                hideUploadProgress();
-                console.log('AW upload completed successfully');
-            }, 1500);
+            showUploadProgress(`AW upload complete: ${awJobsFound} updated`, 100);
+            setTimeout(() => hideUploadProgress(), 1500);
             
         } catch (error) {
             console.error('Error processing AW file:', error);
@@ -492,12 +451,11 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// HANDLE PL UPLOAD - FAST & CLEAN
+// HANDLE PL UPLOAD - TRUE BULK (SUPER FAST)
 // ============================================================
 async function handlePLUpload(file) {
-    console.log('📤 Uploading PL Excel file:', file.name);
-    
-    showUploadProgress('📖 Reading PL file...', 10);
+    console.log('⚡ BULK PL UPLOAD STARTED:', file.name);
+    showUploadProgress('📖 Reading file...', 10);
     
     const reader = new FileReader();
     
@@ -515,32 +473,29 @@ async function handlePLUpload(file) {
             }
             
             if (!sheet) {
-                showUploadProgress('❌ Sheet "PLAN-WEEK" not found', 100);
-                setTimeout(() => hideUploadProgress(), 3000);
-                alert('Sheet "PLAN-WEEK" not found in the uploaded file.');
+                alert('❌ Sheet "PLAN-WEEK" not found!');
+                hideUploadProgress();
                 return;
             }
             
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            console.log('📊 PL data rows:', jsonData.length);
-            
-            showUploadProgress('🔄 Processing PL data...', 30);
-            
             const rows = jsonData.slice(1);
+            
+            console.log(`📊 Processing ${rows.length} rows...`);
+            showUploadProgress(`📊 Processing ${rows.length} rows...`, 20);
+            
+            // Build ALL data in arrays for bulk insert
+            const jobsToSave = [];
+            const plToSave = [];
+            const savedAWData = { ...awData };
             let jobsAdded = 0;
             let jobsWithAW = 0;
             
-            // Save existing AW data before clearing
-            const savedAWData = { ...awData };
-            
-            // Clear in-memory databases
+            // Clear memory databases
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
             
-            // Build data arrays
-            const jobsToSave = {};
-            const plToSave = {};
-            
+            // Process all rows
             for (const row of rows) {
                 if (!row || row.length < 25) continue;
                 
@@ -682,8 +637,8 @@ async function handlePLUpload(file) {
                     estimatedDate: estimatedDate ? estimatedDate.toISOString() : null
                 };
                 
-                // Build save objects (only columns that exist in your DB)
-                jobsToSave[jobId] = {
+                // Add to bulk arrays - ONLY columns that exist in your DB
+                jobsToSave.push({
                     job_id: jobId,
                     job_number: jobNumber,
                     name: jobName,
@@ -719,10 +674,9 @@ async function handlePLUpload(file) {
                     actual_setup: actualSetup || 0,
                     downtime: downtime || 0,
                     printing_duration: printingDuration || 0
-                };
+                });
                 
-                // PL data - ONLY columns that exist in your pl_database table
-                plToSave[jobId] = {
+                plToSave.push({
                     job_id: jobId,
                     job_number: jobNumber,
                     job_name: jobName,
@@ -755,62 +709,76 @@ async function handlePLUpload(file) {
                     is_hold: isHold || false,
                     status_date: statusDate.toISOString(),
                     estimated_date: estimatedDate || null
-                };
+                });
                 
                 jobsAdded++;
             }
             
-            console.log(`✅ Added ${jobsAdded} jobs to database, ${jobsWithAW} have AW data`);
+            console.log(`✅ ${jobsAdded} jobs prepared (${jobsWithAW} with AW data)`);
             
             // ============================================================
-            // SAVE TO SUPABASE - FAST BATCH
+            // TRUE BULK UPLOAD - ALL IN ONE API CALL
             // ============================================================
             const client = initSupabase();
-            const BATCH_SIZE = 200; // Larger batch = faster
-            const jobEntries = Object.entries(jobsToSave);
-            let savedCount = 0;
-            
-            showUploadProgress(`💾 Saving ${jobEntries.length} jobs...`, 40);
             const startTime = Date.now();
             
-            for (let i = 0; i < jobEntries.length; i += BATCH_SIZE) {
-                const batch = jobEntries.slice(i, i + BATCH_SIZE);
-                const batchJobs = {};
-                const batchPL = {};
-                
-                for (const [jobId, jobData] of batch) {
-                    batchJobs[jobId] = jobData;
-                    if (plToSave[jobId]) {
-                        batchPL[jobId] = plToSave[jobId];
-                    }
+            showUploadProgress(`💾 Uploading ${jobsAdded} jobs...`, 40);
+            
+            // STEP 1: Delete existing data (fast)
+            const existingJobs = await supabaseLoadAllJobs();
+            if (existingJobs && existingJobs.length > 0) {
+                for (let i = 0; i < existingJobs.length; i += 500) {
+                    const batch = existingJobs.slice(i, i + 500);
+                    const ids = batch.map(j => j.job_id);
+                    await client.from('jobs').delete().in('job_id', ids);
                 }
-                
-                // Save jobs
-                if (Object.keys(batchJobs).length > 0) {
-                    try {
-                        await supabaseSaveMultipleJobs(batchJobs);
-                    } catch (e) {
-                        console.warn('⚠️ Batch jobs error:', e);
-                    }
-                }
-                
-                // Save PL data
-                for (const [plId, plData] of Object.entries(batchPL)) {
-                    try {
-                        await supabaseSavePLData(plId, plData);
-                    } catch (e) {
-                        // Skip PL errors - jobs are more important
-                    }
-                }
-                
-                savedCount += batch.length;
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                const percent = Math.min(95, 40 + Math.round((savedCount / jobEntries.length) * 55));
-                showUploadProgress(`📊 ${savedCount}/${jobEntries.length} jobs (${elapsed}s)`, percent);
-                console.log(`✅ ${savedCount}/${jobEntries.length} jobs saved (${elapsed}s)`);
+                console.log(`🗑️ Deleted ${existingJobs.length} existing jobs`);
             }
             
-            console.log(`✅ All ${savedCount} jobs saved to Supabase in ${Math.round((Date.now() - startTime) / 1000)}s`);
+            const existingPL = await supabaseLoadAllPLData();
+            if (existingPL && existingPL.length > 0) {
+                for (let i = 0; i < existingPL.length; i += 500) {
+                    const batch = existingPL.slice(i, i + 500);
+                    const ids = batch.map(p => p.job_id);
+                    await client.from('pl_database').delete().in('job_id', ids);
+                }
+                console.log(`🗑️ Deleted ${existingPL.length} existing PL records`);
+            }
+            
+            // STEP 2: BULK INSERT - ALL JOBS IN ONE CALL (split into 500 per call for safety)
+            const BATCH_SIZE = 500;
+            let saved = 0;
+            
+            // Insert jobs in batches of 500
+            for (let i = 0; i < jobsToSave.length; i += BATCH_SIZE) {
+                const batch = jobsToSave.slice(i, i + BATCH_SIZE);
+                const { error } = await client.from('jobs').insert(batch);
+                if (error) {
+                    console.warn('⚠️ Batch insert error, trying upsert:', error);
+                    // If insert fails, try upsert
+                    const { error: upsertError } = await client.from('jobs').upsert(batch, { onConflict: 'job_id' });
+                    if (upsertError) console.error('❌ Upsert error:', upsertError);
+                }
+                saved += batch.length;
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                const percent = Math.min(90, 40 + Math.round((saved / jobsToSave.length) * 50));
+                showUploadProgress(`📊 ${saved}/${jobsToSave.length} jobs (${elapsed}s)`, percent);
+                console.log(`✅ ${saved}/${jobsToSave.length} jobs inserted (${elapsed}s)`);
+            }
+            
+            // Insert PL data in batches of 500
+            for (let i = 0; i < plToSave.length; i += BATCH_SIZE) {
+                const batch = plToSave.slice(i, i + BATCH_SIZE);
+                const { error } = await client.from('pl_database').insert(batch);
+                if (error) {
+                    console.warn('⚠️ PL batch insert error:', error);
+                    const { error: upsertError } = await client.from('pl_database').upsert(batch, { onConflict: 'job_id' });
+                    if (upsertError) console.error('❌ PL upsert error:', upsertError);
+                }
+            }
+            
+            const totalTime = Math.round((Date.now() - startTime) / 1000);
+            console.log(`✅ All ${saved} jobs saved in ${totalTime}s`);
             
             // ============================================================
             // RELOAD AND UPDATE UI
@@ -863,7 +831,6 @@ async function handlePLUpload(file) {
             
             updateUploadStatus('qasem');
             
-            const totalTime = Math.round((Date.now() - startTime) / 1000);
             showUploadProgress(`✅ ${jobsAdded} jobs uploaded in ${totalTime}s`, 100);
             
             setTimeout(() => {
@@ -881,17 +848,15 @@ async function handlePLUpload(file) {
             }, 500);
             
         } catch (error) {
-            console.error('❌ Error processing PL file:', error);
-            showUploadProgress('❌ Error: ' + error.message, 100);
-            setTimeout(() => hideUploadProgress(), 3000);
-            alert('Error reading PL Excel file. Please check the file format.\nError: ' + error.message);
+            console.error('❌ Upload failed:', error);
+            hideUploadProgress();
+            alert('❌ Upload failed: ' + error.message);
         }
     };
     
     reader.onerror = function() {
-        console.error('❌ Error reading PL file');
-        showUploadProgress('❌ Error reading file', 100);
-        setTimeout(() => hideUploadProgress(), 3000);
+        console.error('❌ Error reading file');
+        hideUploadProgress();
         alert('Error reading file. Please try again.');
     };
     
