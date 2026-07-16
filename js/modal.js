@@ -196,7 +196,7 @@ function openJobDetailsModal(jobId) {
     const awStatusSelect = document.getElementById('modal-aw-status');
     if (awStatusSelect) awStatusSelect.value = awStatus;
     
-    const plStatus = jobData.planningStatus || 'Unprinted';
+    const plStatus = jobData.planningStatus || 'Unplanned';
     const plStatusSelect = document.getElementById('modal-pl-status');
     if (plStatusSelect) plStatusSelect.value = plStatus;
     
@@ -352,7 +352,7 @@ function saveJobDetailsFromModal() {
     const speed = parseFloat(speedInput ? speedInput.value : 0);
     const machine = machineSelect ? machineSelect.value : '';
     const awStatus = awStatusSelect ? awStatusSelect.value : 'Missing Data';
-    const plStatus = plStatusSelect ? plStatusSelect.value : 'Unprinted';
+    const plStatus = plStatusSelect ? plStatusSelect.value : 'Unplanned';
     const statusDateStr = dateInput ? dateInput.value : '';
     
     // Validate
@@ -598,8 +598,8 @@ function removeJobFromTimelineFromModal() {
         return;
     }
     const plStatusSelect = document.getElementById('modal-pl-status');
-    if (plStatusSelect) plStatusSelect.value = 'Unprinted';
-    jobData.planningStatus = 'Unprinted';
+    if (plStatusSelect) plStatusSelect.value = 'Unplanned';
+    jobData.planningStatus = 'Unplanned';
     returnJobToFeed(timelineJob);
     
     const timelineBadge = document.getElementById('modal-on-timeline');
