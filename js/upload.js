@@ -1,4 +1,4 @@
-// script-upload.js - WORKING VERSION
+// script-upload.js - COMPLETE WORKING VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -61,6 +61,7 @@ function updateUploadStatus(uploader) {
     uploadStatus[uploader].lastUpdated = now;
     uploadStatus[uploader].status = 'updated';
     updateStatusIndicators();
+    console.log(`✅ ${uploader} upload status updated`);
 }
 
 function checkUploadValidity() {
@@ -220,10 +221,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// FAST PL UPLOAD - IGNORES DUPLICATES
+// FAST BATCH PL UPLOAD - 100 JOBS AT A TIME
 // ============================================================
-async function fastPLUpload(file) {
-    console.log('⚡ FAST PL UPLOAD STARTED:', file.name);
+async function fastBatchPLUpload(file) {
+    console.log('⚡ FAST BATCH UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -253,16 +254,11 @@ async function fastPLUpload(file) {
             console.log(`📊 Processing ${rows.length} rows...`);
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
-            const client = initSupabase();
-            const CHUNK_SIZE = 500;
-            let totalInserted = 0;
-            let totalSkipped = 0;
-            let duplicateCount = 0;
-            const startTime = Date.now();
+            // Build all jobs
+            const allJobs = [];
+            const allPLData = [];
             
-            // Process rows one by one to skip duplicates
-            for (let i = 0; i < rows.length; i++) {
-                const row = rows[i];
+            for (const row of rows) {
                 if (!row || row.length < 25) continue;
                 
                 const jobNumber = String(row[0] || '').trim();
@@ -295,8 +291,7 @@ async function fastPLUpload(file) {
                 const isComplete = planningStatus === 'Complete' || planningStatus === 'Printed';
                 const effectiveStatus = isComplete ? 'Complete' : planningStatus;
                 
-                // Try to insert - if duplicate, skip
-                const jobData = {
+                allJobs.push({
                     job_id: jobId,
                     job_number: jobNumber,
                     name: jobName,
@@ -332,9 +327,9 @@ async function fastPLUpload(file) {
                     actual_setup: actualSetup,
                     downtime: downtime,
                     printing_duration: printingDuration
-                };
+                });
                 
-                const plData = {
+                allPLData.push({
                     job_id: jobId,
                     job_number: jobNumber,
                     job_name: jobName,
@@ -367,36 +362,104 @@ async function fastPLUpload(file) {
                     is_hold: planningStatus === 'Hold',
                     status_date: new Date(1900, 0, 1).toISOString(),
                     estimated_date: null
-                };
+                });
+            }
+            
+            console.log(`📊 ${allJobs.length} jobs to upload`);
+            
+            if (allJobs.length === 0) {
+                alert('No valid jobs found!');
+                hideUploadProgress();
+                return;
+            }
+            
+            const client = initSupabase();
+            const BATCH_SIZE = 100;
+            let uploaded = 0;
+            let skipped = 0;
+            const startTime = Date.now();
+            
+            // Clear existing data
+            console.log('🧹 Clearing existing data...');
+            showUploadProgress('🧹 Clearing existing data...', 15);
+            
+            const existingJobs = await supabaseLoadAllJobs();
+            if (existingJobs && existingJobs.length > 0) {
+                for (let i = 0; i < existingJobs.length; i += 100) {
+                    const batch = existingJobs.slice(i, i + 100);
+                    const ids = batch.map(j => j.job_id);
+                    await client.from('jobs').delete().in('job_id', ids);
+                }
+                console.log(`🗑️ Deleted ${existingJobs.length} existing jobs`);
+            }
+            
+            const existingPL = await supabaseLoadAllPLData();
+            if (existingPL && existingPL.length > 0) {
+                for (let i = 0; i < existingPL.length; i += 100) {
+                    const batch = existingPL.slice(i, i + 100);
+                    const ids = batch.map(p => p.job_id);
+                    await client.from('pl_database').delete().in('job_id', ids);
+                }
+                console.log(`🗑️ Deleted ${existingPL.length} existing PL records`);
+            }
+            
+            // Upload in batches
+            showUploadProgress(`💾 Uploading ${allJobs.length} jobs...`, 20);
+            
+            for (let i = 0; i < allJobs.length; i += BATCH_SIZE) {
+                const jobBatch = allJobs.slice(i, i + BATCH_SIZE);
+                const plBatch = allPLData.slice(i, i + BATCH_SIZE);
                 
                 try {
-                    // Try to insert
-                    const { error } = await client
+                    const { error: jobError } = await client
                         .from('jobs')
-                        .upsert(jobData, { onConflict: 'job_number' });
+                        .upsert(jobBatch, { onConflict: 'job_number' });
                     
-                    if (error) {
-                        console.log(`⚠️ Error for ${jobNumber}:`, error.message);
-                        totalSkipped++;
+                    if (jobError) {
+                        console.warn('⚠️ Job batch error:', jobError.message);
+                        for (const job of jobBatch) {
+                            try {
+                                await client.from('jobs').upsert(job, { onConflict: 'job_number' });
+                                uploaded++;
+                            } catch (e) {
+                                skipped++;
+                            }
+                        }
                     } else {
-                        totalInserted++;
-                        // Also insert PL data
-                        await client
-                            .from('pl_database')
-                            .upsert(plData, { onConflict: 'job_number' });
+                        uploaded += jobBatch.length;
                     }
+                    
+                    const { error: plError } = await client
+                        .from('pl_database')
+                        .upsert(plBatch, { onConflict: 'job_number' });
+                    
+                    if (plError) {
+                        console.warn('⚠️ PL batch error:', plError.message);
+                        for (const pl of plBatch) {
+                            try {
+                                await client.from('pl_database').upsert(pl, { onConflict: 'job_number' });
+                            } catch (e) {
+                                // Skip
+                            }
+                        }
+                    }
+                    
                 } catch (err) {
-                    console.log(`⚠️ Skipped ${jobNumber}: duplicate`);
-                    duplicateCount++;
-                    totalSkipped++;
+                    console.warn('⚠️ Batch failed, uploading individually...');
+                    for (const job of jobBatch) {
+                        try {
+                            await client.from('jobs').upsert(job, { onConflict: 'job_number' });
+                            uploaded++;
+                        } catch (e) {
+                            skipped++;
+                        }
+                    }
                 }
                 
-                // Show progress every 100 jobs
-                if (totalInserted % 100 === 0 && totalInserted > 0) {
-                    const elapsed = Math.round((Date.now() - startTime) / 1000);
-                    showUploadProgress(`📊 ${totalInserted} jobs uploaded (${elapsed}s)`, Math.min(90, Math.round((totalInserted / rows.length) * 100)));
-                    console.log(`✅ ${totalInserted} jobs uploaded (${duplicateCount} duplicates skipped)`);
-                }
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                const percent = Math.min(95, Math.round((uploaded / allJobs.length) * 100));
+                showUploadProgress(`📊 ${uploaded}/${allJobs.length} jobs (${elapsed}s)`, percent);
+                console.log(`✅ ${uploaded}/${allJobs.length} jobs uploaded (${elapsed}s)`);
             }
             
             const totalTime = Math.round((Date.now() - startTime) / 1000);
@@ -405,20 +468,20 @@ async function fastPLUpload(file) {
 ╔═══════════════════════════════════════════════════════╗
 ║              ✅ UPLOAD COMPLETE!                     ║
 ╠═══════════════════════════════════════════════════════╣
-║  📊 Jobs uploaded:  ${totalInserted}                   ║
-║  ⏭️  Duplicates skipped: ${duplicateCount}             ║
-║  ⏱️  Time:           ${totalTime} seconds               ║
+║  📊 Jobs uploaded:  ${uploaded}                       ║
+║  ⏭️  Skipped:        ${skipped}                       ║
+║  ⏱️  Time:           ${totalTime} seconds             ║
 ╚═══════════════════════════════════════════════════════╝
             `);
             
             updateUploadStatus('qasem');
-            showUploadProgress(`✅ ${totalInserted} jobs uploaded in ${totalTime}s!`, 100);
+            showUploadProgress(`✅ ${uploaded} jobs uploaded in ${totalTime}s!`, 100);
             
             setTimeout(async () => {
                 await supabaseSyncAllData();
                 populateProductionFeed();
                 hideUploadProgress();
-                showNotification(`✅ ${totalInserted} jobs uploaded (${duplicateCount} duplicates skipped)`, 'success');
+                showNotification(`✅ ${uploaded} jobs uploaded (${skipped} skipped) in ${totalTime}s`, 'success');
                 updateStatistics();
             }, 500);
             
@@ -447,10 +510,7 @@ function handleAWUpload(file) {
             const workbook = XLSX.read(data, { type: 'array' });
             
             const sheetNames = workbook.SheetNames;
-            console.log('AW Sheets found:', sheetNames);
-            
             const detected = detectUploader(sheetNames);
-            console.log('Detected uploaders:', detected);
             
             const firstSheet = workbook.Sheets[sheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
@@ -465,7 +525,6 @@ function handleAWUpload(file) {
             const jobsToUpdate = {};
             const awDataToSave = {};
             
-            // Get existing jobs to check COMPLETE status
             const existingJobs = await supabaseLoadAllJobs();
             const completeJobNumbers = new Set();
             
@@ -475,7 +534,6 @@ function handleAWUpload(file) {
                         completeJobNumbers.add(job.job_number);
                     }
                 });
-                console.log(`📌 ${completeJobNumbers.size} COMPLETE jobs (AW will skip these)`);
             }
             
             for (const row of rows) {
@@ -485,8 +543,6 @@ function handleAWUpload(file) {
                 const status = String(row[8] || '').trim();
                 
                 if (!jobNumber) continue;
-                
-                // Skip if job is COMPLETE
                 if (completeJobNumbers.has(jobNumber)) {
                     awJobsSkipped++;
                     continue;
@@ -531,7 +587,6 @@ function handleAWUpload(file) {
                 }
                 
                 let rawStatus = status || 'Unknown';
-                
                 let estimatedDate = null;
                 if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
                     estimatedDate = calculateEstimatedDate(statusDate, 2);
@@ -585,21 +640,12 @@ function handleAWUpload(file) {
                 }
             }
             
-            console.log(`AW results: ${awJobsFound} updated, ${awJobsSkipped} skipped (complete jobs)`);
+            if (Object.keys(awDataToSave).length > 0) {
+                await supabaseSaveMultipleAWData(awDataToSave);
+            }
             
-            // Save to Supabase
-            try {
-                if (Object.keys(awDataToSave).length > 0) {
-                    await supabaseSaveMultipleAWData(awDataToSave);
-                    console.log(`✅ ${Object.keys(awDataToSave).length} AW records saved`);
-                }
-                
-                if (Object.keys(jobsToUpdate).length > 0) {
-                    await supabaseSaveMultipleJobs(jobsToUpdate);
-                    console.log(`✅ ${Object.keys(jobsToUpdate).length} jobs updated`);
-                }
-            } catch (saveError) {
-                console.error('❌ Error saving to Supabase:', saveError);
+            if (Object.keys(jobsToUpdate).length > 0) {
+                await supabaseSaveMultipleJobs(jobsToUpdate);
             }
             
             filterStatuses = savedFilterStatuses;
@@ -615,7 +661,7 @@ function handleAWUpload(file) {
                 updateUploadStatus('mahmoud');
                 updateUploadStatus('raed');
                 updateUploadStatus('rabia');
-                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated, ${awJobsSkipped} skipped (complete)`, 'success');
+                showNotification(`✅ Full Data uploaded - ${awJobsFound} updated`, 'success');
             } else {
                 if (detected.mahmoud) updateUploadStatus('mahmoud');
                 if (detected.raed) updateUploadStatus('raed');
@@ -623,11 +669,10 @@ function handleAWUpload(file) {
                 showNotification(`✅ AW data uploaded - ${awJobsFound} jobs updated`, 'success');
             }
             
-            showUploadProgress(`✅ AW complete: ${awJobsFound} updated, ${awJobsSkipped} skipped`, 100);
+            showUploadProgress(`✅ AW complete: ${awJobsFound} updated`, 100);
             
             setTimeout(() => {
                 hideUploadProgress();
-                console.log('AW upload completed');
             }, 1500);
             
         } catch (error) {
@@ -675,7 +720,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - FAST VERSION
+    // PL Upload - FAST BATCH
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -693,7 +738,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                fastPLUpload(file);
+                fastBatchPLUpload(file);
             }
             this.value = '';
         });
@@ -729,7 +774,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.fastPLUpload = fastPLUpload;
+window.fastBatchPLUpload = fastBatchPLUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
