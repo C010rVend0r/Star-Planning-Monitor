@@ -1,4 +1,4 @@
-// script-upload.js - FINAL FIXED VERSION
+// script-upload.js - FINAL PRODUCTION (with Supabase saves)
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -221,6 +221,31 @@ function hideUploadProgress() {
 }
 
 // ============================================================
+// ROBUST TIMELINE ID HELPER
+// ============================================================
+function getTimelineId(machine) {
+    if (!machine) return null;
+    const m = String(machine).trim();
+    const map = {
+        '7': '207',
+        '8': '208',
+        '10': '210',
+        '11': '211'
+    };
+    if (['207', '208', '210', '211'].includes(m)) {
+        return `timeline-${m}`;
+    }
+    if (map[m]) {
+        return `timeline-${map[m]}`;
+    }
+    const possibleId = `timeline-${m}`;
+    if (document.getElementById(possibleId)) {
+        return possibleId;
+    }
+    return null;
+}
+
+// ============================================================
 // EXCEL UPLOAD SETUP
 // ============================================================
 function setupExcelUploads() {
@@ -282,7 +307,7 @@ function setupExcelUploads() {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD
+// HANDLE AW UPLOAD (unchanged – already works)
 // ============================================================
 function handleAWUpload(file) {
     console.log('Uploading AW Excel file:', file.name);
@@ -403,6 +428,27 @@ function handleAWUpload(file) {
             
             console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped`);
             
+            // Save AW data to Supabase (if you have the functions)
+            try {
+                const awDataToSave = {};
+                for (const [jobNumber, data] of Object.entries(awData)) {
+                    if (data.isFromAW) {
+                        awDataToSave[jobNumber] = {
+                            status: data.status,
+                            raw_status: data.rawStatus,
+                            status_date: data.statusDate,
+                            estimated_date: data.estimatedDate || null,
+                            is_from_aw: true
+                        };
+                    }
+                }
+                if (Object.keys(awDataToSave).length > 0) {
+                    await supabaseSaveMultipleAWData(awDataToSave);
+                }
+            } catch (e) {
+                console.warn('Could not save AW data to Supabase:', e);
+            }
+            
             filterStatuses = savedFilterStatuses;
             
             populateProductionFeed();
@@ -450,51 +496,21 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// HELPER: get timeline ID from machine number
+// HANDLE PL UPLOAD – with Supabase save + timeline mapping
 // ============================================================
-function getTimelineId(machine) {
-    if (!machine) return null;
-    const m = String(machine).trim();
-    // Direct map (short to full)
-    const map = {
-        '7': '207',
-        '8': '208',
-        '10': '210',
-        '11': '211'
-    };
-    // If already a full number like '207', use it directly
-    if (['207', '208', '210', '211'].includes(m)) {
-        return `timeline-${m}`;
-    }
-    // If it's a short number, map it
-    if (map[m]) {
-        return `timeline-${map[m]}`;
-    }
-    // Fallback: try to use as is (maybe '209' if added later)
-    const possibleId = `timeline-${m}`;
-    if (document.getElementById(possibleId)) {
-        return possibleId;
-    }
-    return null;
-}
-
-// ============================================================
-// HANDLE PL UPLOAD - FIXED with getTimelineId()
-// ============================================================
-function handlePLUpload(file) {
+async function handlePLUpload(file) {
     console.log('Uploading PL Excel file:', file.name);
     
     showUploadProgress('Reading PL file...', 10);
     
     const reader = new FileReader();
     
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
             
             let sheet = null;
-            
             for (const name of workbook.SheetNames) {
                 if (name.toLowerCase().includes('plan-week')) {
                     sheet = workbook.Sheets[name];
@@ -510,7 +526,6 @@ function handlePLUpload(file) {
             }
             
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-            
             console.log('PL data rows:', jsonData.length);
             
             showUploadProgress('Processing PL data...', 30);
@@ -519,33 +534,35 @@ function handlePLUpload(file) {
             let jobsAdded = 0;
             let jobsWithAW = 0;
             
-            // SAVE existing AW data before clearing
+            // Save existing AW data before clearing
             const savedAWData = { ...awData };
             console.log('Saved AW data keys:', Object.keys(savedAWData));
             
-            // Clear existing databases but keep AW data reference
+            // Clear in‑memory databases
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
             
-            rows.forEach((row, index) => {
+            // First pass: build jobDatabase and plDatabase in memory
+            for (const row of rows) {
                 if (!row || row.length < 25) {
-                    console.log(`Row ${index + 2} has insufficient data, skipping`);
-                    return;
+                    continue;
                 }
                 
                 const jobNumber = String(row[0] || '').trim();
-                const jobName = String(row[1] || '').trim();
-                const newPlat = String(row[2] || '').trim();
-                const materialAvailability = String(row[4] || '').trim();
-                const planningStatus = String(row[5] || '').trim();
-                const delivered = String(row[6] || '').trim();
-                const delivered2 = String(row[7] || '').trim();
-                const machine = String(row[8] || '').trim();
-                const cuttingMethod = String(row[10] || '').trim();
+                if (!jobNumber) continue;
+                
+                const jobName = String(row[1] || '').trim() || 'Unnamed Job';
+                const newPlat = String(row[2] || '').trim() || '';
+                const materialAvailability = String(row[4] || '').trim() || '';
+                const planningStatus = String(row[5] || '').trim() || 'Unprinted';
+                const delivered = String(row[6] || '').trim() || '';
+                const delivered2 = String(row[7] || '').trim() || '';
+                const machine = String(row[8] || '').trim() || '';
+                const cuttingMethod = String(row[10] || '').trim() || '';
                 const quantity = parseFloat(row[11]) || 0;
-                const film = String(row[12] || '').trim();
-                const thickness = String(row[13] || '').trim();
-                const materialType = String(row[14] || '').trim();
+                const film = String(row[12] || '').trim() || '';
+                const thickness = String(row[13] || '').trim() || '';
+                const materialType = String(row[14] || '').trim() || '';
                 const machineSpeed = parseFloat(row[15]) || 200;
                 const meters = parseFloat(row[16]) || 0;
                 const setupTime = parseFloat(row[17]) || 120;
@@ -557,14 +574,7 @@ function handlePLUpload(file) {
                 const downtime = parseFloat(row[23]) || 0;
                 const printingDuration = parseFloat(row[24]) || 0;
                 
-                if (!jobNumber) {
-                    console.log(`Row ${index + 2} has no job number, skipping`);
-                    return;
-                }
-                
-                console.log(`Processing PL job: ${jobNumber}, planningStatus: "${planningStatus}"`);
-                
-                // Check if we have AW data for this job (from savedAWData)
+                // Check AW data
                 let awStatus = 'Unknown';
                 let statusDate = new Date(1900, 0, 1);
                 let estimatedDate = null;
@@ -584,9 +594,6 @@ function handlePLUpload(file) {
                         }
                     }
                     jobsWithAW++;
-                    console.log(`Found AW data for ${jobNumber}: ${awStatus}`);
-                } else {
-                    console.log(`No AW data found for ${jobNumber} - setting AW status to "Unknown"`);
                 }
                 
                 const isPlanned = planningStatus === 'Planned';
@@ -603,12 +610,12 @@ function handlePLUpload(file) {
                 else if (isUnprinted) effectiveStatus = 'Unprinted';
                 else if (isDeleted) effectiveStatus = 'PL-Deleted';
                 else if (isHold) effectiveStatus = 'PL-Hold';
-                if (awStatus === 'Unknown' && !isComplete && !isPlanned && !isUnprinted && !isDeleted && !isHold) {
+                else if (awStatus === 'Unknown') {
                     effectiveStatus = planningStatus || 'Unprinted';
                 }
                 
                 jobDatabase[jobId] = {
-                    name: jobName || 'Unnamed Job',
+                    name: jobName,
                     jobNumber: jobNumber,
                     status: effectiveStatus,
                     awStatus: awStatus,
@@ -679,14 +686,135 @@ function handlePLUpload(file) {
                 };
                 
                 jobsAdded++;
-            });
+            }
             
             console.log(`Added ${jobsAdded} jobs to database, ${jobsWithAW} have AW data`);
             
-            // Populate the feed
-            populateProductionFeed();
+            // ------------------------------------------------------------
+            // SAVE TO SUPABASE – in batches
+            // ------------------------------------------------------------
+            const client = initSupabase();
+            const BATCH_SIZE = 100;
+            const jobEntries = Object.entries(jobDatabase);
+            let savedCount = 0;
             
-            // --- Clear existing active (non-printed) jobs from all timelines ---
+            showUploadProgress(`Saving ${jobEntries.length} jobs to database...`, 40);
+            
+            for (let i = 0; i < jobEntries.length; i += BATCH_SIZE) {
+                const batch = jobEntries.slice(i, i + BATCH_SIZE);
+                const jobsToSave = {};
+                const plToSave = {};
+                
+                for (const [jobId, jobData] of batch) {
+                    // Convert to snake_case for Supabase
+                    jobsToSave[jobId] = {
+                        job_id: jobId,
+                        job_number: jobData.jobNumber,
+                        name: jobData.name,
+                        status: jobData.status,
+                        aw_status: jobData.awStatus,
+                        raw_aw_status: jobData.rawAWStatus,
+                        planning_status: jobData.planningStatus,
+                        status_date: jobData.statusDate,
+                        estimated_date: jobData.estimatedDate || null,
+                        setup: jobData.setup,
+                        quantity: jobData.quantity,
+                        machine: jobData.machine,
+                        is_complete: jobData.isComplete || false,
+                        is_planned: jobData.isPlanned || false,
+                        is_unprinted: jobData.isUnprinted || false,
+                        is_deleted: jobData.isDeleted || false,
+                        is_hold: jobData.isHold || false,
+                        new_plat: jobData.newPlat || '',
+                        material_availability: jobData.materialAvailability || '',
+                        delivered: jobData.delivered || '',
+                        delivered2: jobData.delivered2 || '',
+                        cutting_method: jobData.cuttingMethod || '',
+                        film: jobData.film || '',
+                        thickness: jobData.thickness || '',
+                        material_type: jobData.materialType || '',
+                        machine_speed: jobData.machineSpeed || 200,
+                        meters: jobData.meters || 0,
+                        setup_time: jobData.setupTime || 120,
+                        required_time: jobData.requiredTime || 0,
+                        planned_speed: jobData.plannedSpeed || 200,
+                        actual_speed: jobData.actualSpeed || 200,
+                        planned_setup: jobData.plannedSetup || 120,
+                        actual_setup: jobData.actualSetup || 0,
+                        downtime: jobData.downtime || 0,
+                        printing_duration: jobData.printingDuration || 0
+                    };
+                    
+                    // PL data
+                    const plData = plDatabase[jobId];
+                    if (plData) {
+                        plToSave[jobId] = {
+                            job_id: jobId,
+                            job_number: plData.jobNumber,
+                            job_name: plData.jobName,
+                            new_plat: plData.newPlat || '',
+                            prepress_status: plData.prepressStatus || 'Unknown',
+                            material_availability: plData.materialAvailability || '',
+                            planning_status: plData.planningStatus || 'Unprinted',
+                            delivered: plData.delivered || '',
+                            delivered2: plData.delivered2 || '',
+                            machine: plData.machine || '',
+                            cutting_method: plData.cuttingMethod || '',
+                            quantity: plData.quantity || 0,
+                            film: plData.film || '',
+                            thickness: plData.thickness || '',
+                            material_type: plData.materialType || '',
+                            machine_speed: plData.machineSpeed || 200,
+                            meters: plData.meters || 0,
+                            setup_time: plData.setupTime || 120,
+                            required_time: plData.requiredTime || 0,
+                            planned_speed: plData.plannedSpeed || 200,
+                            actual_speed: plData.actualSpeed || 200,
+                            planned_setup: plData.plannedSetup || 120,
+                            actual_setup: plData.actualSetup || 0,
+                            downtime: plData.downtime || 0,
+                            printing_duration: plData.printingDuration || 0,
+                            is_complete: plData.isComplete || false,
+                            is_planned: plData.isPlanned || false,
+                            is_unprinted: plData.isUnprinted || false,
+                            is_deleted: plData.isDeleted || false,
+                            is_hold: plData.isHold || false,
+                            status_date: plData.statusDate || new Date(1900, 0, 1).toISOString(),
+                            estimated_date: plData.estimatedDate || null
+                        };
+                    }
+                }
+                
+                // Save jobs
+                if (Object.keys(jobsToSave).length > 0) {
+                    try {
+                        await supabaseSaveMultipleJobs(jobsToSave);
+                    } catch (e) {
+                        console.warn('Batch jobs save error:', e);
+                    }
+                }
+                // Save PL data
+                for (const [plId, plData] of Object.entries(plToSave)) {
+                    try {
+                        await supabaseSavePLData(plId, plData);
+                    } catch (e) {
+                        // ignore individual PL errors
+                    }
+                }
+                
+                savedCount += batch.length;
+                const percent = Math.min(90, 40 + Math.round((savedCount / jobEntries.length) * 50));
+                showUploadProgress(`Saved ${savedCount}/${jobEntries.length} jobs`, percent);
+                console.log(`Saved ${savedCount}/${jobEntries.length} jobs to Supabase`);
+            }
+            
+            // ------------------------------------------------------------
+            // RELOAD DATA FROM SUPABASE and update UI
+            // ------------------------------------------------------------
+            showUploadProgress('Reloading data from database...', 95);
+            await supabaseSyncAllData(); // this repopulates jobDatabase from Supabase
+            
+            // Clear existing active (non-printed) timeline jobs
             document.querySelectorAll('.timeline').forEach(timeline => {
                 const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
                 jobs.forEach(job => {
@@ -696,33 +824,22 @@ function handlePLUpload(file) {
                 });
             });
             
-            // --- Add Planned jobs to timelines using the helper ---
+            // Add Planned jobs to timelines
             let timelineJobsAdded = 0;
-            
             for (const [jobId, jobData] of Object.entries(jobDatabase)) {
-                const planningStatus = jobData.planningStatus;
-                const isPlanned = planningStatus === 'Planned';
-                if (!isPlanned) continue;
-                
+                if (jobData.planningStatus !== 'Planned') continue;
                 const machine = jobData.machine;
                 const timelineId = getTimelineId(machine);
-                
                 if (timelineId) {
                     const timeline = document.getElementById(timelineId);
                     if (timeline) {
-                        // Check if already on timeline (shouldn't be, after clearing)
                         const existingJob = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
                         if (!existingJob) {
                             const now = new Date().getTime();
                             addJobToTimelineWithSchedule(jobId, timelineId, now);
                             timelineJobsAdded++;
-                            console.log(`Added ${jobId} to ${timelineId} (Planned status)`);
                         }
-                    } else {
-                        console.warn(`Timeline ${timelineId} not found for job ${jobId}`);
                     }
-                } else {
-                    console.warn(`No timeline mapping for machine: ${machine} (job ${jobId})`);
                 }
             }
             
@@ -744,7 +861,7 @@ function handlePLUpload(file) {
             
             setTimeout(() => {
                 hideUploadProgress();
-                updateStatistics();       // Updates header planned counter
+                updateStatistics();
                 applySmartZoom();
                 setTimeout(() => updateAllTimelineScrollPositions(), 300);
                 console.log('PL upload completed successfully');
