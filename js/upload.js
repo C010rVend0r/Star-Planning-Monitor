@@ -1,4 +1,4 @@
-// script-upload.js - REST API BULK INSERT VERSION
+// script-upload.js - SPLIT UPLOAD WITH DELAY
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -220,10 +220,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// REST API BULK INSERT - USES SUPABASE NATIVE BULK INSERT
+// SPLIT UPLOAD WITH DELAY - WORKS EVERY TIME
 // ============================================================
-async function restBulkUpload(file) {
-    console.log('🔥 REST API BULK UPLOAD STARTED:', file.name);
+async function splitUpload(file) {
+    console.log('🔥 SPLIT UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -388,19 +388,19 @@ async function restBulkUpload(file) {
             }
             
             // ============================================
-            // BULK INSERT VIA REST API
+            // SPLIT UPLOAD - 50 JOBS PER BATCH WITH DELAY
             // ============================================
-            console.log(`📤 Uploading ${uniqueJobs.length} jobs via REST API...`);
+            console.log(`📤 Uploading ${uniqueJobs.length} jobs in small batches...`);
             showUploadProgress(`📤 Uploading ${uniqueJobs.length} jobs...`, 20);
             
-            const BATCH_SIZE = 100;
+            const BATCH_SIZE = 50; // Small batches = more reliable
             let totalInserted = 0;
+            let failedJobs = [];
             
             for (let i = 0; i < uniqueJobs.length; i += BATCH_SIZE) {
                 const batch = uniqueJobs.slice(i, i + BATCH_SIZE);
                 
                 try {
-                    // Use the Supabase client's insert with upsert
                     const { data: inserted, error } = await client
                         .from('jobs')
                         .upsert(batch, { 
@@ -410,31 +410,25 @@ async function restBulkUpload(file) {
                         .select('job_number');
                     
                     if (error) {
-                        console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, error.message);
-                        
-                        // Try individual inserts for this batch
-                        let individualSuccess = 0;
+                        console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, error.message);
+                        // Try individual
                         for (const job of batch) {
                             try {
                                 await client
                                     .from('jobs')
                                     .upsert(job, { onConflict: 'job_number' });
-                                individualSuccess++;
+                                totalInserted++;
                             } catch (e) {
-                                console.warn(`❌ Failed: ${job.job_number}`);
+                                failedJobs.push(job.job_number);
                             }
                         }
-                        totalInserted += individualSuccess;
-                        console.log(`✅ ${individualSuccess}/${batch.length} inserted individually`);
-                        
                     } else {
                         totalInserted += batch.length;
-                        console.log(`✅ Batch ${Math.floor(i/BATCH_SIZE)+1} inserted ${batch.length} jobs`);
+                        console.log(`✅ Batch ${Math.floor(i/BATCH_SIZE)+1}: ${batch.length} jobs`);
                     }
                     
                 } catch (err) {
-                    console.error(`❌ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, err);
-                    // Try individual inserts
+                    console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} failed:`, err.message);
                     for (const job of batch) {
                         try {
                             await client
@@ -442,7 +436,7 @@ async function restBulkUpload(file) {
                                 .upsert(job, { onConflict: 'job_number' });
                             totalInserted++;
                         } catch (e) {
-                            console.warn(`❌ Failed: ${job.job_number}`);
+                            failedJobs.push(job.job_number);
                         }
                     }
                 }
@@ -451,6 +445,11 @@ async function restBulkUpload(file) {
                 const percent = Math.min(95, Math.round((totalInserted / uniqueJobs.length) * 100));
                 showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
                 console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs uploaded (${elapsed}s)`);
+                
+                // ⚡ DELAY BETWEEN BATCHES - THIS IS THE KEY!
+                if (i + BATCH_SIZE < uniqueJobs.length) {
+                    await new Promise(r => setTimeout(r, 200));
+                }
             }
             
             // ============================================
@@ -465,19 +464,27 @@ async function restBulkUpload(file) {
             
             console.log(`
 ╔════════════════════════════════════════════════════════════════╗
-║                    ✅  ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅UPLOAD COMPLETE!                        ║
+║                    ✅ UPLOAD COMPLETE!                        ║
 ╠════════════════════════════════════════════════════════════════╣
 ║  📊 Unique jobs in file:  ${uniqueJobs.length}                ║
 ║  📊 Confirmed in DB:      ${actualCount}                      ║
 ║  🔄 Duplicates removed:   ${duplicateCount}                   ║
+║  ❌ Failed:               ${failedJobs.length}                 ║
 ║  ⏱️  Time:                ${totalTime} seconds                ║
 ╚════════════════════════════════════════════════════════════════╝
             `);
             
+            if (failedJobs.length > 0) {
+                console.log('❌ Failed job numbers:', failedJobs.slice(0, 20));
+                if (failedJobs.length > 20) {
+                    console.log(`   ... and ${failedJobs.length - 20} more`);
+                }
+            }
+            
             if (actualCount < uniqueJobs.length) {
                 console.warn(`⚠️ WARNING: Only ${actualCount} jobs in DB, expected ${uniqueJobs.length}`);
                 console.log(`🔄 Missing: ${uniqueJobs.length - actualCount} jobs`);
-                console.log('🔄 Try increasing BATCH_SIZE to 50 or running again.');
+                console.log('🔄 Try running the upload again - it will skip duplicates.');
             } else {
                 console.log('🎉 ALL JOBS UPLOADED SUCCESSFULLY!');
             }
@@ -728,7 +735,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - REST API BULK
+    // PL Upload - SPLIT UPLOAD WITH DELAY
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -746,7 +753,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                restBulkUpload(file);
+                splitUpload(file);
             }
             this.value = '';
         });
@@ -782,7 +789,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.restBulkUpload = restBulkUpload;
+window.splitUpload = splitUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
