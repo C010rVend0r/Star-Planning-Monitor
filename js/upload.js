@@ -451,6 +451,9 @@ function handleAWUpload(file) {
 // ============================================================
 // HANDLE PL UPLOAD - DEFINITIVE FIX
 // ============================================================
+// ============================================================
+// HANDLE PL UPLOAD - WITH DEDUPLICATION
+// ============================================================
 async function handlePLUpload(file) {
     console.log('⚡ PL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
@@ -483,7 +486,36 @@ async function handlePLUpload(file) {
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
             // ============================================
-            // STEP 1: COMPLETE DATABASE RESET
+            // STEP 1: DEDUPLICATE - Keep only unique job_ids
+            // ============================================
+            const uniqueJobMap = new Map();
+            let duplicateCount = 0;
+            
+            for (const row of rows) {
+                if (!row || row.length < 25) continue;
+                const jobNumber = String(row[0] || '').trim();
+                if (!jobNumber) continue;
+                
+                // If this job_id already exists, skip it (keep the first one)
+                if (uniqueJobMap.has(jobNumber)) {
+                    duplicateCount++;
+                    console.log(`⚠️ Duplicate job skipped: ${jobNumber}`);
+                    continue;
+                }
+                uniqueJobMap.set(jobNumber, row);
+            }
+            
+            const uniqueRows = Array.from(uniqueJobMap.values());
+            console.log(`📊 ${uniqueRows.length} unique jobs (${duplicateCount} duplicates removed)`);
+            
+            if (uniqueRows.length === 0) {
+                alert('No valid jobs found in the file!');
+                hideUploadProgress();
+                return;
+            }
+            
+            // ============================================
+            // STEP 2: COMPLETE DATABASE RESET
             // ============================================
             const client = initSupabase();
             const startTime = Date.now();
@@ -491,86 +523,62 @@ async function handlePLUpload(file) {
             console.log('🔥 COMPLETE DATABASE RESET...');
             showUploadProgress('🔥 Resetting database...', 15);
             
-            // Delete ALL data from ALL tables (in correct order to avoid FK issues)
-            const tables = ['job_speeds', 'job_schedule', 'aw_data', 'pl_database', 'jobs'];
-            
-            for (const table of tables) {
+            try {
+                // First, delete from tables with foreign key constraints (child tables first)
+                const tables = ['job_speeds', 'job_schedule', 'aw_data', 'pl_database', 'jobs'];
+                for (const table of tables) {
+                    try {
+                        await client.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                    } catch (e) {
+                        console.warn(`⚠️ Could not clear ${table}:`, e.message);
+                    }
+                }
+                
+                // Also delete using the known helper functions
                 try {
-                    // First, get all records
-                    const { data: records, error: fetchError } = await client
-                        .from(table)
-                        .select('id')
-                        .limit(1000);
-                    
-                    if (fetchError) {
-                        console.warn(`⚠️ Could not fetch from ${table}:`, fetchError.message);
-                        continue;
-                    }
-                    
-                    if (records && records.length > 0) {
-                        // Delete in batches
-                        for (let i = 0; i < records.length; i += 500) {
-                            const batch = records.slice(i, i + 500);
-                            const ids = batch.map(r => r.id);
-                            const { error: deleteError } = await client
-                                .from(table)
-                                .delete()
-                                .in('id', ids);
-                            
-                            if (deleteError) {
-                                console.warn(`⚠️ Error deleting from ${table}:`, deleteError.message);
-                            } else {
-                                console.log(`🗑️ Deleted ${Math.min(i + 500, records.length)}/${records.length} from ${table}`);
-                            }
+                    const existingJobs = await supabaseLoadAllJobs();
+                    if (existingJobs && existingJobs.length > 0) {
+                        for (let i = 0; i < existingJobs.length; i += 500) {
+                            const batch = existingJobs.slice(i, i + 500);
+                            const ids = batch.map(j => j.job_id);
+                            await client.from('jobs').delete().in('job_id', ids);
                         }
+                        console.log(`🗑️ Deleted ${existingJobs.length} jobs`);
                     }
-                } catch (e) {
-                    console.warn(`⚠️ Could not process ${table}:`, e.message);
-                }
+                } catch (e) {}
+                
+                try {
+                    const existingPL = await supabaseLoadAllPLData();
+                    if (existingPL && existingPL.length > 0) {
+                        for (let i = 0; i < existingPL.length; i += 500) {
+                            const batch = existingPL.slice(i, i + 500);
+                            const ids = batch.map(p => p.job_id);
+                            await client.from('pl_database').delete().in('job_id', ids);
+                        }
+                        console.log(`🗑️ Deleted ${existingPL.length} PL records`);
+                    }
+                } catch (e) {}
+                
+                try {
+                    const existingAW = await supabaseLoadAllAWData();
+                    if (existingAW && existingAW.length > 0) {
+                        for (let i = 0; i < existingAW.length; i += 500) {
+                            const batch = existingAW.slice(i, i + 500);
+                            const ids = batch.map(a => a.job_number);
+                            await client.from('aw_data').delete().in('job_number', ids);
+                        }
+                        console.log(`🗑️ Deleted ${existingAW.length} AW records`);
+                    }
+                } catch (e) {}
+            } catch (e) {
+                console.warn('⚠️ Reset warning:', e.message);
             }
-            
-            // Also delete using the known helper functions for jobs, PL, AW
-            try {
-                const existingJobs = await supabaseLoadAllJobs();
-                if (existingJobs && existingJobs.length > 0) {
-                    for (let i = 0; i < existingJobs.length; i += 500) {
-                        const batch = existingJobs.slice(i, i + 500);
-                        const ids = batch.map(j => j.job_id);
-                        await client.from('jobs').delete().in('job_id', ids);
-                    }
-                    console.log(`🗑️ Deleted ${existingJobs.length} jobs via helper`);
-                }
-            } catch (e) {}
-            
-            try {
-                const existingPL = await supabaseLoadAllPLData();
-                if (existingPL && existingPL.length > 0) {
-                    for (let i = 0; i < existingPL.length; i += 500) {
-                        const batch = existingPL.slice(i, i + 500);
-                        const ids = batch.map(p => p.job_id);
-                        await client.from('pl_database').delete().in('job_id', ids);
-                    }
-                    console.log(`🗑️ Deleted ${existingPL.length} PL records via helper`);
-                }
-            } catch (e) {}
-            
-            try {
-                const existingAW = await supabaseLoadAllAWData();
-                if (existingAW && existingAW.length > 0) {
-                    for (let i = 0; i < existingAW.length; i += 500) {
-                        const batch = existingAW.slice(i, i + 500);
-                        const ids = batch.map(a => a.job_number);
-                        await client.from('aw_data').delete().in('job_number', ids);
-                    }
-                    console.log(`🗑️ Deleted ${existingAW.length} AW records via helper`);
-                }
-            } catch (e) {}
             
             console.log('✅ Database reset complete!');
             showUploadProgress('✅ Database reset complete!', 20);
             
             // ============================================
-            // STEP 2: BUILD DATA FROM FILE
+            // STEP 3: BUILD DATA FROM UNIQUE ROWS
             // ============================================
             const savedAWData = { ...awData };
             const jobsToSave = [];
@@ -582,7 +590,7 @@ async function handlePLUpload(file) {
             Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
             Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
             
-            for (const row of rows) {
+            for (const row of uniqueRows) {
                 if (!row || row.length < 25) continue;
                 
                 const jobNumber = String(row[0] || '').trim();
@@ -800,7 +808,7 @@ async function handlePLUpload(file) {
                 jobsAdded++;
             }
             
-            console.log(`✅ ${jobsAdded} jobs prepared (${jobsWithAW} with AW data)`);
+            console.log(`✅ ${jobsAdded} unique jobs prepared (${jobsWithAW} with AW data)`);
             
             if (jobsToSave.length === 0) {
                 alert('No valid jobs found in the file!');
@@ -809,9 +817,9 @@ async function handlePLUpload(file) {
             }
             
             // ============================================
-            // STEP 3: BULK INSERT WITH RETRY
+            // STEP 4: BULK INSERT (NOW NO DUPLICATES!)
             // ============================================
-            showUploadProgress(`💾 Uploading ${jobsToSave.length} jobs...`, 40);
+            showUploadProgress(`💾 Uploading ${jobsToSave.length} unique jobs...`, 40);
             
             const BATCH_SIZE = 500;
             let saved = 0;
@@ -819,35 +827,31 @@ async function handlePLUpload(file) {
             // Insert jobs in batches of 500
             for (let i = 0; i < jobsToSave.length; i += BATCH_SIZE) {
                 const batch = jobsToSave.slice(i, i + BATCH_SIZE);
-                let success = false;
-                let retryCount = 0;
                 
-                while (!success && retryCount < 3) {
-                    try {
-                        const { error } = await client.from('jobs').insert(batch);
-                        if (error) {
-                            throw error;
-                        }
-                        success = true;
-                        saved += batch.length;
-                    } catch (err) {
-                        retryCount++;
-                        console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} attempt ${retryCount} failed:`, err.message);
-                        
-                        if (retryCount >= 3) {
-                            // Final attempt: individual inserts
-                            console.log(`🔄 Trying individual inserts for batch ${Math.floor(i/BATCH_SIZE)+1}...`);
-                            for (const job of batch) {
-                                try {
-                                    await client.from('jobs').upsert(job, { onConflict: 'job_id' });
-                                    saved++;
-                                } catch (e) {
-                                    console.warn(`❌ Failed: ${job.job_number}`);
-                                }
+                try {
+                    const { error } = await client.from('jobs').insert(batch);
+                    if (error) {
+                        console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} insert error:`, error.message);
+                        // If insert fails, try upsert one by one
+                        for (const job of batch) {
+                            try {
+                                await client.from('jobs').upsert(job, { onConflict: 'job_id' });
+                                saved++;
+                            } catch (e) {
+                                console.warn(`❌ Failed: ${job.job_number}`);
                             }
-                            success = true;
-                        } else {
-                            await new Promise(r => setTimeout(r, 500 * retryCount));
+                        }
+                    } else {
+                        saved += batch.length;
+                    }
+                } catch (err) {
+                    console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} failed:`, err.message);
+                    for (const job of batch) {
+                        try {
+                            await client.from('jobs').upsert(job, { onConflict: 'job_id' });
+                            saved++;
+                        } catch (e) {
+                            console.warn(`❌ Failed: ${job.job_number}`);
                         }
                     }
                 }
@@ -880,7 +884,7 @@ async function handlePLUpload(file) {
             console.log(`✅ All ${saved} jobs saved in ${totalTime}s`);
             
             // ============================================
-            // STEP 4: RELOAD AND UPDATE UI
+            // STEP 5: RELOAD AND UPDATE UI
             // ============================================
             showUploadProgress('🔄 Reloading data...', 96);
             await supabaseSyncAllData();
@@ -940,7 +944,7 @@ async function handlePLUpload(file) {
                 setTimeout(() => updateAllTimelineScrollPositions(), 300);
                 
                 showNotification(
-                    `✅ ${jobsAdded} jobs uploaded (${timelineJobsAdded} Planned on timeline) in ${totalTime}s`,
+                    `✅ ${jobsAdded} unique jobs uploaded (${timelineJobsAdded} Planned on timeline) in ${totalTime}s`,
                     'success'
                 );
                 console.log('✅ PL upload completed successfully');
