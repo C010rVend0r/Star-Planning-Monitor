@@ -1,4 +1,4 @@
-// script-upload.js - COMPLETE WORKING VERSION
+// script-upload.js - FINAL WORKING VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -221,10 +221,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// FAST BATCH PL UPLOAD - 100 JOBS AT A TIME
+// FINAL WORKING PL UPLOAD - DEDUPLICATED
 // ============================================================
-async function fastBatchPLUpload(file) {
-    console.log('⚡ FAST BATCH UPLOAD STARTED:', file.name);
+async function workingPLUpload(file) {
+    console.log('⚡ WORKING PL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -254,16 +254,42 @@ async function fastBatchPLUpload(file) {
             console.log(`📊 Processing ${rows.length} rows...`);
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
-            // Build all jobs
-            const allJobs = [];
-            const allPLData = [];
+            // ============================================
+            // STEP 1: REMOVE DUPLICATES FROM FILE
+            // ============================================
+            const uniqueMap = new Map();
+            let dupCount = 0;
             
             for (const row of rows) {
                 if (!row || row.length < 25) continue;
-                
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
+                if (!uniqueMap.has(jobNumber)) {
+                    uniqueMap.set(jobNumber, row);
+                } else {
+                    dupCount++;
+                    console.log(`⚠️ Duplicate skipped: ${jobNumber}`);
+                }
+            }
+            
+            const cleanRows = Array.from(uniqueMap.values());
+            console.log(`📊 ${cleanRows.length} unique jobs (${dupCount} duplicates removed)`);
+            
+            if (cleanRows.length === 0) {
+                alert('No valid jobs found!');
+                hideUploadProgress();
+                return;
+            }
+            
+            // ============================================
+            // STEP 2: BUILD DATA
+            // ============================================
+            const allJobs = [];
+            const allPLData = [];
+            
+            for (const row of cleanRows) {
+                const jobNumber = String(row[0] || '').trim();
                 const jobName = String(row[1] || '').trim() || 'Unnamed';
                 const newPlat = String(row[2] || '').trim() || '';
                 const materialAvailability = String(row[4] || '').trim() || '';
@@ -365,7 +391,7 @@ async function fastBatchPLUpload(file) {
                 });
             }
             
-            console.log(`📊 ${allJobs.length} jobs to upload`);
+            console.log(`📊 ${allJobs.length} unique jobs ready to upload`);
             
             if (allJobs.length === 0) {
                 alert('No valid jobs found!');
@@ -373,13 +399,14 @@ async function fastBatchPLUpload(file) {
                 return;
             }
             
+            // ============================================
+            // STEP 3: CLEAR EXISTING DATA
+            // ============================================
             const client = initSupabase();
             const BATCH_SIZE = 100;
             let uploaded = 0;
-            let skipped = 0;
             const startTime = Date.now();
             
-            // Clear existing data
             console.log('🧹 Clearing existing data...');
             showUploadProgress('🧹 Clearing existing data...', 15);
             
@@ -403,58 +430,40 @@ async function fastBatchPLUpload(file) {
                 console.log(`🗑️ Deleted ${existingPL.length} existing PL records`);
             }
             
-            // Upload in batches
+            // ============================================
+            // STEP 4: UPLOAD IN BATCHES (NO DUPLICATES!)
+            // ============================================
             showUploadProgress(`💾 Uploading ${allJobs.length} jobs...`, 20);
             
             for (let i = 0; i < allJobs.length; i += BATCH_SIZE) {
                 const jobBatch = allJobs.slice(i, i + BATCH_SIZE);
                 const plBatch = allPLData.slice(i, i + BATCH_SIZE);
                 
-                try {
-                    const { error: jobError } = await client
-                        .from('jobs')
-                        .upsert(jobBatch, { onConflict: 'job_number' });
-                    
-                    if (jobError) {
-                        console.warn('⚠️ Job batch error:', jobError.message);
-                        for (const job of jobBatch) {
-                            try {
-                                await client.from('jobs').upsert(job, { onConflict: 'job_number' });
-                                uploaded++;
-                            } catch (e) {
-                                skipped++;
-                            }
-                        }
-                    } else {
-                        uploaded += jobBatch.length;
-                    }
-                    
-                    const { error: plError } = await client
-                        .from('pl_database')
-                        .upsert(plBatch, { onConflict: 'job_number' });
-                    
-                    if (plError) {
-                        console.warn('⚠️ PL batch error:', plError.message);
-                        for (const pl of plBatch) {
-                            try {
-                                await client.from('pl_database').upsert(pl, { onConflict: 'job_number' });
-                            } catch (e) {
-                                // Skip
-                            }
-                        }
-                    }
-                    
-                } catch (err) {
-                    console.warn('⚠️ Batch failed, uploading individually...');
+                // Insert jobs (no duplicates in batch)
+                const { error: jobError } = await client
+                    .from('jobs')
+                    .insert(jobBatch);
+                
+                if (jobError) {
+                    console.warn('⚠️ Job insert error, using upsert one by one...');
                     for (const job of jobBatch) {
-                        try {
-                            await client.from('jobs').upsert(job, { onConflict: 'job_number' });
-                            uploaded++;
-                        } catch (e) {
-                            skipped++;
-                        }
+                        await client.from('jobs').upsert(job, { onConflict: 'job_number' });
                     }
                 }
+                
+                // Insert PL data
+                const { error: plError } = await client
+                    .from('pl_database')
+                    .insert(plBatch);
+                
+                if (plError) {
+                    console.warn('⚠️ PL insert error, using upsert one by one...');
+                    for (const pl of plBatch) {
+                        await client.from('pl_database').upsert(pl, { onConflict: 'job_number' });
+                    }
+                }
+                
+                uploaded += jobBatch.length;
                 
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
                 const percent = Math.min(95, Math.round((uploaded / allJobs.length) * 100));
@@ -469,7 +478,7 @@ async function fastBatchPLUpload(file) {
 ║              ✅ UPLOAD COMPLETE!                     ║
 ╠═══════════════════════════════════════════════════════╣
 ║  📊 Jobs uploaded:  ${uploaded}                       ║
-║  ⏭️  Skipped:        ${skipped}                       ║
+║  ⏭️  Duplicates removed from file: ${dupCount}        ║
 ║  ⏱️  Time:           ${totalTime} seconds             ║
 ╚═══════════════════════════════════════════════════════╝
             `);
@@ -481,7 +490,7 @@ async function fastBatchPLUpload(file) {
                 await supabaseSyncAllData();
                 populateProductionFeed();
                 hideUploadProgress();
-                showNotification(`✅ ${uploaded} jobs uploaded (${skipped} skipped) in ${totalTime}s`, 'success');
+                showNotification(`✅ ${uploaded} jobs uploaded (${dupCount} duplicates removed) in ${totalTime}s`, 'success');
                 updateStatistics();
             }, 500);
             
@@ -720,7 +729,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - FAST BATCH
+    // PL Upload - WORKING VERSION
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -738,7 +747,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                fastBatchPLUpload(file);
+                workingPLUpload(file);
             }
             this.value = '';
         });
@@ -774,7 +783,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.fastBatchPLUpload = fastBatchPLUpload;
+window.workingPLUpload = workingPLUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
