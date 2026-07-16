@@ -400,6 +400,31 @@ async function supabaseSetConfig(configKey, configValue) {
         return false;
     }
 }
+async function supabaseSaveMultipleSchedules(schedules) {
+    try {
+        const client = initSupabase();
+        const scheduleArray = Object.entries(schedules).map(([jobId, data]) => ({
+            job_id: jobId,
+            start_time: data.start_time,
+            end_time: data.end_time,
+            timeline_id: data.timeline_id,
+            is_printed: data.is_printed || false
+        }));
+        
+        const { error } = await client
+            .from('job_schedule')
+            .upsert(scheduleArray, { onConflict: 'job_id' });
+        
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('❌ Error saving schedules:', error);
+        return false;
+    }
+}
+
+// Also expose it
+window.supabaseSaveMultipleSchedules = supabaseSaveMultipleSchedules;
 
 // ============================================================
 // SYNC FUNCTIONS - Load all data from Supabase
