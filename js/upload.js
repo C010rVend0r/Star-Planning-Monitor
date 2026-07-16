@@ -1,4 +1,4 @@
-// script-upload.js - FIXED (timeline & header counter)
+// script-upload.js - FINAL FIXED VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -10,7 +10,7 @@ const uploadStatus = {
     qasem: { lastUpdated: null, status: 'pending' }
 };
 
-const UPLOAD_VALIDITY_MINUTES = 1440; // 24 hours – production ready
+const UPLOAD_VALIDITY_MINUTES = 1440; // 24 hours
 let statusCheckInterval = null;
 
 const SHEET_PATTERNS = {
@@ -24,9 +24,7 @@ const SHEET_PATTERNS = {
 // CALCULATE ESTIMATED DATE - Excluding Fridays
 // ============================================================
 function calculateEstimatedDate(startDate, daysToAdd) {
-    if (!startDate || isNaN(startDate.getTime())) {
-        return null;
-    }
+    if (!startDate || isNaN(startDate.getTime())) return null;
     const result = new Date(startDate);
     let daysAdded = 0;
     while (daysAdded < daysToAdd) {
@@ -284,7 +282,7 @@ function setupExcelUploads() {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD - unchanged
+// HANDLE AW UPLOAD
 // ============================================================
 function handleAWUpload(file) {
     console.log('Uploading AW Excel file:', file.name);
@@ -405,10 +403,6 @@ function handleAWUpload(file) {
             
             console.log(`AW upload results: ${awJobsFound} updated, ${awJobsSkipped} skipped`);
             
-            // Save to Supabase (if your version uses it)
-            // If you have supabase save calls, add them here
-            // ...
-            
             filterStatuses = savedFilterStatuses;
             
             populateProductionFeed();
@@ -456,7 +450,36 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// HANDLE PL UPLOAD - FIXED timeline addition
+// HELPER: get timeline ID from machine number
+// ============================================================
+function getTimelineId(machine) {
+    if (!machine) return null;
+    const m = String(machine).trim();
+    // Direct map (short to full)
+    const map = {
+        '7': '207',
+        '8': '208',
+        '10': '210',
+        '11': '211'
+    };
+    // If already a full number like '207', use it directly
+    if (['207', '208', '210', '211'].includes(m)) {
+        return `timeline-${m}`;
+    }
+    // If it's a short number, map it
+    if (map[m]) {
+        return `timeline-${map[m]}`;
+    }
+    // Fallback: try to use as is (maybe '209' if added later)
+    const possibleId = `timeline-${m}`;
+    if (document.getElementById(possibleId)) {
+        return possibleId;
+    }
+    return null;
+}
+
+// ============================================================
+// HANDLE PL UPLOAD - FIXED with getTimelineId()
 // ============================================================
 function handlePLUpload(file) {
     console.log('Uploading PL Excel file:', file.name);
@@ -663,7 +686,7 @@ function handlePLUpload(file) {
             // Populate the feed
             populateProductionFeed();
             
-            // --- FIX: Clear existing active (non-printed) jobs from all timelines ---
+            // --- Clear existing active (non-printed) jobs from all timelines ---
             document.querySelectorAll('.timeline').forEach(timeline => {
                 const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
                 jobs.forEach(job => {
@@ -673,34 +696,16 @@ function handlePLUpload(file) {
                 });
             });
             
-            // --- FIX: Add Planned jobs to timelines ---
+            // --- Add Planned jobs to timelines using the helper ---
             let timelineJobsAdded = 0;
             
             for (const [jobId, jobData] of Object.entries(jobDatabase)) {
-                const machine = jobData.machine;
                 const planningStatus = jobData.planningStatus;
                 const isPlanned = planningStatus === 'Planned';
+                if (!isPlanned) continue;
                 
-                if (!isPlanned || !machine) continue;
-                
-                // Determine timeline ID – supports both "207" and "7" formats
-                let timelineId = null;
-                // Direct match for full machine numbers (207,208,210,211)
-                if (['207', '208', '210', '211'].includes(machine)) {
-                    timelineId = `timeline-${machine}`;
-                }
-                // Map short numbers (7,8,10,11) via machineIdMap
-                else if (window.machineIdMap && window.machineIdMap[machine]) {
-                    timelineId = `timeline-${window.machineIdMap[machine]}`;
-                }
-                // If no match, try using the machine number as is (if it's a valid timeline id)
-                else {
-                    // Maybe the machine is already a full number like "207"
-                    const possibleId = `timeline-${machine}`;
-                    if (document.getElementById(possibleId)) {
-                        timelineId = possibleId;
-                    }
-                }
+                const machine = jobData.machine;
+                const timelineId = getTimelineId(machine);
                 
                 if (timelineId) {
                     const timeline = document.getElementById(timelineId);
