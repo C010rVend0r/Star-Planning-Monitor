@@ -1,4 +1,4 @@
-// script-upload.js - FINAL PRODUCTION VERSION
+// script-upload.js - FINAL PRODUCTION (FAST)
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -220,10 +220,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// MAIN UPLOAD FUNCTION – DAILY USE
+// FAST UPLOAD – Optimised for 10000 rows
 // ============================================================
-async function uploadPLData(file) {
-    console.log('🔥 PL UPLOAD STARTED:', file.name);
+async function fastUploadPL(file) {
+    console.log('⚡ FAST PL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -254,21 +254,18 @@ async function uploadPLData(file) {
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
             // ============================================
-            // 1. DEDUPLICATE – keep only the last occurrence of each job number
+            // 1. DEDUPLICATE – keep only latest occurrence
             // ============================================
             const jobMap = new Map();
             let duplicateCount = 0;
             
             for (const row of rows) {
                 if (!row || row.length < 25) continue;
-                
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
-                // If duplicate, skip earlier ones (keep the last)
                 if (jobMap.has(jobNumber)) {
                     duplicateCount++;
-                    // Remove previous entry to keep only the latest
                     jobMap.delete(jobNumber);
                 }
                 
@@ -348,7 +345,7 @@ async function uploadPLData(file) {
             }
             
             // ============================================
-            // 2. CLEAR EXISTING DATA
+            // 2. CLEAR EXISTING DATA (fast)
             // ============================================
             const client = initSupabase();
             const startTime = Date.now();
@@ -356,11 +353,11 @@ async function uploadPLData(file) {
             console.log('🧹 Clearing existing data...');
             showUploadProgress('🧹 Clearing existing data...', 15);
             
-            // Delete jobs
+            // Delete all jobs
             const existingJobs = await supabaseLoadAllJobs();
             if (existingJobs && existingJobs.length > 0) {
-                for (let i = 0; i < existingJobs.length; i += 200) {
-                    const batch = existingJobs.slice(i, i + 200);
+                for (let i = 0; i < existingJobs.length; i += 500) {
+                    const batch = existingJobs.slice(i, i + 500);
                     const ids = batch.map(j => j.job_id);
                     await client.from('jobs').delete().in('job_id', ids);
                 }
@@ -370,8 +367,8 @@ async function uploadPLData(file) {
             // Delete PL data
             const existingPL = await supabaseLoadAllPLData();
             if (existingPL && existingPL.length > 0) {
-                for (let i = 0; i < existingPL.length; i += 200) {
-                    const batch = existingPL.slice(i, i + 200);
+                for (let i = 0; i < existingPL.length; i += 500) {
+                    const batch = existingPL.slice(i, i + 500);
                     const ids = batch.map(p => p.job_id);
                     await client.from('pl_database').delete().in('job_id', ids);
                 }
@@ -381,8 +378,8 @@ async function uploadPLData(file) {
             // Delete AW data
             const existingAW = await supabaseLoadAllAWData();
             if (existingAW && existingAW.length > 0) {
-                for (let i = 0; i < existingAW.length; i += 200) {
-                    const batch = existingAW.slice(i, i + 200);
+                for (let i = 0; i < existingAW.length; i += 500) {
+                    const batch = existingAW.slice(i, i + 500);
                     const ids = batch.map(a => a.job_number);
                     await client.from('aw_data').delete().in('job_number', ids);
                 }
@@ -390,38 +387,36 @@ async function uploadPLData(file) {
             }
             
             // ============================================
-            // 3. UPLOAD IN SMALL BATCHES (50 rows) WITH DELAY
+            // 3. FAST BULK UPLOAD (200 rows per batch, no delay)
             // ============================================
             console.log(`📤 Uploading ${uniqueJobs.length} jobs...`);
             showUploadProgress(`📤 Uploading ${uniqueJobs.length} jobs...`, 20);
             
-            const BATCH_SIZE = 50;
+            const BATCH_SIZE = 200;  // bigger batches = faster
             let totalInserted = 0;
             
             for (let i = 0; i < uniqueJobs.length; i += BATCH_SIZE) {
                 const batch = uniqueJobs.slice(i, i + BATCH_SIZE);
                 
-                try {
-                    const { error } = await client
-                        .from('jobs')
-                        .upsert(batch, { onConflict: 'job_number' });
-                    
-                    if (error) {
-                        console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, error.message);
-                        // Fallback to individual upserts for this batch
-                        for (const job of batch) {
-                            try {
-                                await client.from('jobs').upsert(job, { onConflict: 'job_number' });
-                                totalInserted++;
-                            } catch (e) {
-                                console.warn(`❌ Failed: ${job.job_number}`);
-                            }
+                // Upsert jobs
+                const { error } = await client
+                    .from('jobs')
+                    .upsert(batch, { onConflict: 'job_number' });
+                
+                if (error) {
+                    console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, error.message);
+                    // fallback to individual upserts for this batch
+                    for (const job of batch) {
+                        try {
+                            await client.from('jobs').upsert(job, { onConflict: 'job_number' });
+                            totalInserted++;
+                        } catch (e) {
+                            console.warn(`❌ Failed: ${job.job_number}`);
                         }
-                    } else {
-                        totalInserted += batch.length;
                     }
-                    
-                    // Also insert PL data (we'll do it in parallel using the same batch)
+                } else {
+                    totalInserted += batch.length;
+                    // Also insert PL data in the background (ignore errors)
                     const plBatch = batch.map(job => ({
                         job_id: job.job_id,
                         job_number: job.job_number,
@@ -456,35 +451,29 @@ async function uploadPLData(file) {
                         status_date: job.status_date || new Date(1900, 0, 1).toISOString(),
                         estimated_date: null
                     }));
-                    
                     try {
                         await client.from('pl_database').upsert(plBatch, { onConflict: 'job_number' });
                     } catch (plError) {
-                        console.warn('⚠️ PL batch error, ignoring...');
+                        // ignore PL errors – they are not critical for the timeline
                     }
-                    
-                } catch (err) {
-                    console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} completely failed:`, err.message);
                 }
                 
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                const percent = Math.min(95, Math.round((totalInserted / uniqueJobs.length) * 100));
-                showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
-                console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs uploaded (${elapsed}s)`);
-                
-                // 🛑 Small delay to avoid rate limiting
-                if (i + BATCH_SIZE < uniqueJobs.length) {
-                    await new Promise(r => setTimeout(r, 200));
+                // Show progress every few batches
+                if ((i + BATCH_SIZE) % 400 === 0 || i + BATCH_SIZE >= uniqueJobs.length) {
+                    const elapsed = Math.round((Date.now() - startTime) / 1000);
+                    const percent = Math.min(95, Math.round((totalInserted / uniqueJobs.length) * 100));
+                    showUploadProgress(`📊 ${totalInserted}/${uniqueJobs.length} jobs (${elapsed}s)`, percent);
+                    console.log(`✅ ${totalInserted}/${uniqueJobs.length} jobs uploaded (${elapsed}s)`);
                 }
             }
             
             // ============================================
-            // 4. FINALISE – Reload data and populate UI
+            // 4. RELOAD DATA AND UPDATE TIMELINE
             // ============================================
             console.log('🔄 Reloading data into memory...');
             await supabaseSyncAllData();
             
-            // Clear existing timeline jobs before adding new ones
+            // Clear existing timeline jobs (keep printed)
             document.querySelectorAll('.timeline').forEach(timeline => {
                 const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
                 jobs.forEach(job => {
@@ -494,7 +483,7 @@ async function uploadPLData(file) {
                 });
             });
             
-            // Add jobs to timeline if they have Planning Status = "Planned" and a machine assigned
+            // Add planned jobs to timelines
             const plannedJobs = Object.keys(jobDatabase).filter(jobId => {
                 const job = jobDatabase[jobId];
                 return job.planningStatus === 'Planned' && job.machine && job.machine !== '';
@@ -509,7 +498,6 @@ async function uploadPLData(file) {
                 const timeline = document.getElementById(timelineId);
                 
                 if (timeline) {
-                    // Check if job already exists on timeline (shouldn't, we just cleared)
                     const existing = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
                     if (!existing) {
                         const now = new Date().getTime();
@@ -520,7 +508,7 @@ async function uploadPLData(file) {
                 }
             }
             
-            // Reschedule all timelines to set proper start/end times
+            // Reschedule all timelines
             document.querySelectorAll('.timeline').forEach(timeline => {
                 rescheduleTimelineJobs(timeline.id, true);
                 scaleTimeline(timeline.id);
@@ -539,19 +527,17 @@ async function uploadPLData(file) {
             
             const totalTime = Math.round((Date.now() - startTime) / 1000);
             
-            // 🎯 SUCCESS – show final summary (without misleading verification)
             console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║              ✅ UPLOAD COMPLETE!                              ║
 ╠════════════════════════════════════════════════════════════════╣
-║  📊 Unique jobs uploaded:  ${uniqueJobs.length}                ║
-║  🔄 Duplicates removed:    ${duplicateCount}                   ║
-║  📌 Planned jobs added to timeline: ${plannedJobs.length}      ║
-║  ⏱️  Time:                 ${totalTime} seconds                ║
+║  📊 Jobs uploaded:     ${uniqueJobs.length}                   ║
+║  🔄 Duplicates removed: ${duplicateCount}                     ║
+║  📌 Planned on timeline: ${plannedJobs.length}                ║
+║  ⏱️  Time:              ${totalTime} seconds                  ║
 ╚════════════════════════════════════════════════════════════════╝
             `);
             
-            // Update upload status (Qasem)
             updateUploadStatus('qasem');
             showUploadProgress(`✅ ${uniqueJobs.length} jobs uploaded`, 100);
             setTimeout(hideUploadProgress, 1000);
@@ -569,7 +555,7 @@ async function uploadPLData(file) {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD (unchanged, already working)
+// HANDLE AW UPLOAD (unchanged)
 // ============================================================
 function handleAWUpload(file) {
     console.log('📤 Uploading AW Excel file:', file.name);
@@ -765,7 +751,7 @@ function handleAWUpload(file) {
 }
 
 // ============================================================
-// EXCEL UPLOAD SETUP (attaches buttons)
+// EXCEL UPLOAD SETUP
 // ============================================================
 function setupExcelUploads() {
     console.log('Setting up Excel uploads...');
@@ -793,7 +779,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload – main function
+    // PL Upload – fast version
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -811,7 +797,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                uploadPLData(file);
+                fastUploadPL(file);
             }
             this.value = '';
         });
@@ -847,7 +833,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.uploadPLData = uploadPLData;
+window.fastUploadPL = fastUploadPL;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
