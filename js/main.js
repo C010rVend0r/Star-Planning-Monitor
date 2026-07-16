@@ -32,6 +32,11 @@ async function initializeApp() {
         showNotification('⚠️ Using local data - connection error', 'error');
     }
     
+    // ============================================================
+    // STEP 1.5: Rebuild timelines from loaded schedules
+    // ============================================================
+    rebuildTimelinesFromSchedules();
+    
     // Initialize time display
     updateTime();
     setInterval(updateTime, 60000);
@@ -89,6 +94,98 @@ async function initializeApp() {
     setupAutoSaveTriggers();
     
     console.log('Application initialized successfully');
+}
+
+// ============================================================
+// REBUILD TIMELINES FROM SCHEDULES
+// ============================================================
+function rebuildTimelinesFromSchedules() {
+    console.log('🔄 Rebuilding timelines from schedules...');
+    
+    const scheduleEntries = Object.entries(jobSchedule);
+    console.log(`📊 Found ${scheduleEntries.length} schedules in memory`);
+    
+    if (scheduleEntries.length === 0) {
+        console.log('⚠️ No schedules found in memory');
+        return;
+    }
+    
+    // Clear existing timeline jobs first (keep printed jobs)
+    document.querySelectorAll('.timeline').forEach(timeline => {
+        const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+        jobs.forEach(job => {
+            const jobId = job.getAttribute('data-job-id');
+            delete jobSchedule[jobId];
+            job.remove();
+        });
+    });
+    
+    // Group schedules by timeline
+    const groupedByTimeline = {};
+    for (const [jobId, schedule] of scheduleEntries) {
+        const timelineId = schedule.timelineId;
+        if (!groupedByTimeline[timelineId]) {
+            groupedByTimeline[timelineId] = [];
+        }
+        groupedByTimeline[timelineId].push({ jobId, schedule });
+    }
+    
+    // Sort each timeline by start time
+    for (const [timelineId, jobs] of Object.entries(groupedByTimeline)) {
+        jobs.sort((a, b) => a.schedule.startTime - b.schedule.startTime);
+        
+        const timeline = document.getElementById(timelineId);
+        if (!timeline) {
+            console.warn(`⚠️ Timeline ${timelineId} not found in DOM`);
+            continue;
+        }
+        
+        console.log(`📊 Adding ${jobs.length} jobs to ${timelineId}`);
+        
+        // Add jobs in order
+        for (const { jobId, schedule } of jobs) {
+            const jobData = jobDatabase[jobId];
+            if (!jobData) {
+                console.warn(`⚠️ Job data not found for ${jobId}`);
+                continue;
+            }
+            
+            // Check if already on timeline
+            const existing = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
+            if (existing) continue;
+            
+            // Create the job element
+            const jobElement = createJobElement(jobId, jobData);
+            
+            // Insert before printed jobs
+            const firstPrinted = timeline.querySelector('.job.job-printed');
+            if (firstPrinted) {
+                timeline.insertBefore(jobElement, firstPrinted);
+            } else {
+                timeline.appendChild(jobElement);
+            }
+            
+            // Update the time display
+            updateJobTimeDisplay(jobId);
+        }
+    }
+    
+    // Update all timelines
+    document.querySelectorAll('.timeline').forEach(timeline => {
+        scaleTimeline(timeline.id);
+        updateJobColors(timeline.id);
+        updateMachineStatus(timeline.closest('.machine'));
+    });
+    
+    updateAllMachineStatuses();
+    updateAllJobColors();
+    updateAllJobTimes();
+    updateAllNowIndicators();
+    updateStatistics();
+    applySmartZoom();
+    setTimeout(() => updateAllTimelineScrollPositions(), 300);
+    
+    console.log('✅ Timelines rebuilt from schedules!');
 }
 
 // ============================================================
@@ -667,6 +764,7 @@ window.checkJobOnTimeline = checkJobOnTimeline;
 window.getDragAfterElement = getDragAfterElement;
 window.initializeTimelineRulers = initializeTimelineRulers;
 window.setupAutoSaveTriggers = setupAutoSaveTriggers;
+window.rebuildTimelinesFromSchedules = rebuildTimelinesFromSchedules;
 
 console.log('%c=== Planning Monitor Loaded ===', 'font-size:16px;font-weight:bold;color:#3498db;');
 console.log('Available functions:');
@@ -681,6 +779,7 @@ console.log('  - applyFilter()          : Apply status filter');
 console.log('  - updateCompletedJobs()  : Check and mark completed jobs');
 console.log('  - refreshAllTimelines()  : Regenerate all timeline rulers');
 console.log('  - exportPLData()         : Export PL data to Excel');
+console.log('  - rebuildTimelinesFromSchedules() : Rebuild timelines from saved schedules');
 console.log('Keyboard shortcuts:');
 console.log('  - Ctrl + +/-            : Zoom in/out');
 console.log('  - Ctrl + 0              : Reset zoom');
