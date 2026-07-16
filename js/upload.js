@@ -1,4 +1,4 @@
-// script-upload.js - DEDUPLICATED FINAL VERSION
+// script-upload.js - SQL BULK INSERT VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -220,10 +220,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// DEDUPLICATED PL UPLOAD - WORKS EVERY TIME
+// SQL BULK INSERT - DIRECT DATABASE INSERT
 // ============================================================
-async function deduplicatedPLUpload(file) {
-    console.log('🔥 DEDUPLICATED UPLOAD STARTED:', file.name);
+async function sqlBulkUpload(file) {
+    console.log('🔥 SQL BULK UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -254,7 +254,7 @@ async function deduplicatedPLUpload(file) {
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
             // ============================================
-            // STEP 1: DEDUPLICATE - KEEP ONLY UNIQUE JOBS
+            // DEDUPLICATE - Keep only unique jobs
             // ============================================
             const jobMap = new Map();
             let duplicateCount = 0;
@@ -265,10 +265,9 @@ async function deduplicatedPLUpload(file) {
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
-                // Only keep the FIRST occurrence (or last - doesn't matter as long as unique)
                 if (jobMap.has(jobNumber)) {
                     duplicateCount++;
-                    continue; // Skip duplicates entirely
+                    continue;
                 }
                 
                 const jobName = String(row[1] || '').trim() || 'Unnamed';
@@ -299,91 +298,55 @@ async function deduplicatedPLUpload(file) {
                 const effectiveStatus = isComplete ? 'Complete' : planningStatus;
                 
                 jobMap.set(jobNumber, {
-                    job: {
-                        job_id: jobId,
-                        job_number: jobNumber,
-                        name: jobName,
-                        status: effectiveStatus,
-                        aw_status: 'Unknown',
-                        raw_aw_status: 'Unknown',
-                        planning_status: planningStatus,
-                        status_date: new Date(1900, 0, 1).toISOString(),
-                        estimated_date: null,
-                        setup: setupTime || plannedSetup || 120,
-                        quantity: meters || quantity || 0,
-                        machine: machine || '',
-                        is_complete: isComplete,
-                        is_planned: planningStatus === 'Planned',
-                        is_unplanned: planningStatus === 'Unplanned',
-                        is_deleted: planningStatus === 'Deleted' || planningStatus === 'PL-Deleted',
-                        is_hold: planningStatus === 'Hold' || planningStatus === 'PL-Hold',
-                        new_plat: newPlat,
-                        material_availability: materialAvailability,
-                        delivered: delivered,
-                        delivered2: delivered2,
-                        cutting_method: cuttingMethod,
-                        film: film,
-                        thickness: thickness,
-                        material_type: materialType,
-                        machine_speed: machineSpeed,
-                        meters: meters,
-                        setup_time: setupTime,
-                        required_time: requiredTime,
-                        planned_speed: plannedSpeed,
-                        actual_speed: actualSpeed,
-                        planned_setup: plannedSetup,
-                        actual_setup: actualSetup,
-                        downtime: downtime,
-                        printing_duration: printingDuration
-                    },
-                    pl: {
-                        job_id: jobId,
-                        job_number: jobNumber,
-                        job_name: jobName,
-                        new_plat: newPlat,
-                        prepress_status: 'Unknown',
-                        material_availability: materialAvailability,
-                        planning_status: planningStatus,
-                        delivered: delivered,
-                        delivered2: delivered2,
-                        machine: machine,
-                        cutting_method: cuttingMethod,
-                        quantity: quantity,
-                        film: film,
-                        thickness: thickness,
-                        material_type: materialType,
-                        machine_speed: machineSpeed,
-                        meters: meters,
-                        setup_time: setupTime,
-                        required_time: requiredTime,
-                        planned_speed: plannedSpeed,
-                        actual_speed: actualSpeed,
-                        planned_setup: plannedSetup,
-                        actual_setup: actualSetup,
-                        downtime: downtime,
-                        printing_duration: printingDuration,
-                        is_complete: isComplete,
-                        is_planned: planningStatus === 'Planned',
-                        is_unplanned: planningStatus === 'Unplanned',
-                        is_deleted: planningStatus === 'Deleted',
-                        is_hold: planningStatus === 'Hold',
-                        status_date: new Date(1900, 0, 1).toISOString(),
-                        estimated_date: null
-                    }
+                    job_id: jobId,
+                    job_number: jobNumber,
+                    name: jobName,
+                    status: effectiveStatus,
+                    aw_status: 'Unknown',
+                    raw_aw_status: 'Unknown',
+                    planning_status: planningStatus,
+                    status_date: new Date(1900, 0, 1).toISOString(),
+                    estimated_date: null,
+                    setup: setupTime || plannedSetup || 120,
+                    quantity: meters || quantity || 0,
+                    machine: machine || '',
+                    is_complete: isComplete,
+                    is_planned: planningStatus === 'Planned',
+                    is_unplanned: planningStatus === 'Unplanned',
+                    is_deleted: planningStatus === 'Deleted' || planningStatus === 'PL-Deleted',
+                    is_hold: planningStatus === 'Hold' || planningStatus === 'PL-Hold',
+                    new_plat: newPlat,
+                    material_availability: materialAvailability,
+                    delivered: delivered,
+                    delivered2: delivered2,
+                    cutting_method: cuttingMethod,
+                    film: film,
+                    thickness: thickness,
+                    material_type: materialType,
+                    machine_speed: machineSpeed,
+                    meters: meters,
+                    setup_time: setupTime,
+                    required_time: requiredTime,
+                    planned_speed: plannedSpeed,
+                    actual_speed: actualSpeed,
+                    planned_setup: plannedSetup,
+                    actual_setup: actualSetup,
+                    downtime: downtime,
+                    printing_duration: printingDuration
                 });
             }
             
-            const uniqueItems = Array.from(jobMap.values());
-            console.log(`📊 ${uniqueItems.length} UNIQUE jobs (${duplicateCount} duplicates removed)`);
+            const uniqueJobs = Array.from(jobMap.values());
+            console.log(`📊 ${uniqueJobs.length} UNIQUE jobs (${duplicateCount} duplicates removed)`);
             
-            if (uniqueItems.length === 0) {
+            if (uniqueJobs.length === 0) {
                 alert('No valid jobs found!');
                 hideUploadProgress();
                 return;
             }
             
             // ============================================
-            // STEP 2: Clear existing data
+            // CLEAR EXISTING DATA
             // ============================================
             const client = initSupabase();
             const startTime = Date.now();
@@ -425,95 +388,189 @@ async function deduplicatedPLUpload(file) {
             }
             
             // ============================================
-            // STEP 3: Upload UNIQUE jobs in batches
+            // BUILD SQL INSERT STATEMENT
             // ============================================
-            console.log(`📤 Uploading ${uniqueItems.length} unique jobs...`);
-            showUploadProgress(`📤 Uploading ${uniqueItems.length} jobs...`, 20);
+            console.log(`📤 Building SQL for ${uniqueJobs.length} jobs...`);
+            showUploadProgress(`📤 Building SQL...`, 30);
             
-            const BATCH_SIZE = 100;
-            let uploaded = 0;
+            // Build values for SQL
+            const values = uniqueJobs.map(job => {
+                const status_date = job.status_date || new Date(1900, 0, 1).toISOString();
+                return `(
+                    '${job.job_id.replace(/'/g, "''")}',
+                    '${job.job_number.replace(/'/g, "''")}',
+                    '${job.name.replace(/'/g, "''")}',
+                    '${job.status.replace(/'/g, "''")}',
+                    '${job.aw_status.replace(/'/g, "''")}',
+                    '${job.raw_aw_status.replace(/'/g, "''")}',
+                    '${job.planning_status.replace(/'/g, "''")}',
+                    '${status_date}',
+                    ${job.setup || 120},
+                    ${job.quantity || 0},
+                    '${(job.machine || '').replace(/'/g, "''")}',
+                    ${job.is_complete || false},
+                    ${job.is_planned || false},
+                    ${job.is_unplanned || false},
+                    ${job.is_deleted || false},
+                    ${job.is_hold || false},
+                    '${(job.new_plat || '').replace(/'/g, "''")}',
+                    '${(job.material_availability || '').replace(/'/g, "''")}',
+                    '${(job.delivered || '').replace(/'/g, "''")}',
+                    '${(job.delivered2 || '').replace(/'/g, "''")}',
+                    '${(job.cutting_method || '').replace(/'/g, "''")}',
+                    '${(job.film || '').replace(/'/g, "''")}',
+                    '${(job.thickness || '').replace(/'/g, "''")}',
+                    '${(job.material_type || '').replace(/'/g, "''")}',
+                    ${job.machine_speed || 200},
+                    ${job.meters || 0},
+                    ${job.setup_time || 120},
+                    ${job.required_time || 0},
+                    ${job.planned_speed || 200},
+                    ${job.actual_speed || 200},
+                    ${job.planned_setup || 120},
+                    ${job.actual_setup || 0},
+                    ${job.downtime || 0},
+                    ${job.printing_duration || 0}
+                )`;
+            }).join(',\n');
             
-            for (let i = 0; i < uniqueItems.length; i += BATCH_SIZE) {
-                const batch = uniqueItems.slice(i, i + BATCH_SIZE);
-                const jobBatch = batch.map(item => item.job);
-                const plBatch = batch.map(item => item.pl);
+            const sql = `
+                INSERT INTO jobs (
+                    job_id, job_number, name, status, aw_status, raw_aw_status,
+                    planning_status, status_date, setup, quantity, machine,
+                    is_complete, is_planned, is_unplanned, is_deleted, is_hold,
+                    new_plat, material_availability, delivered, delivered2,
+                    cutting_method, film, thickness, material_type,
+                    machine_speed, meters, setup_time, required_time,
+                    planned_speed, actual_speed, planned_setup, actual_setup,
+                    downtime, printing_duration
+                ) VALUES
+                ${values}
+                ON CONFLICT (job_number) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    status = EXCLUDED.status,
+                    planning_status = EXCLUDED.planning_status,
+                    setup = EXCLUDED.setup,
+                    quantity = EXCLUDED.quantity,
+                    machine = EXCLUDED.machine
+            `;
+            
+            console.log(`📤 Executing SQL insert for ${uniqueJobs.length} jobs...`);
+            showUploadProgress(`📤 Executing SQL...`, 50);
+            
+            // Execute SQL directly
+            const { error: sqlError } = await client.rpc('exec_sql', { sql: sql });
+            
+            if (sqlError) {
+                console.error('SQL Error:', sqlError);
                 
-                let batchSuccess = false;
-                let retryCount = 0;
+                // Fallback: Try inserting in smaller chunks via SQL
+                console.log('⚠️ SQL failed, trying chunked insert...');
+                const CHUNK_SIZE = 100;
+                let inserted = 0;
                 
-                while (!batchSuccess && retryCount < 3) {
-                    try {
-                        // Try batch insert (no duplicates in batch now)
-                        const { error: jobError } = await client
-                            .from('jobs')
-                            .insert(jobBatch);
-                        
-                        if (jobError) {
-                            // If insert fails, try upsert
-                            const { error: upsertError } = await client
-                                .from('jobs')
-                                .upsert(jobBatch, { onConflict: 'job_number' });
-                            
-                            if (upsertError) {
-                                throw new Error(upsertError.message);
-                            }
-                        }
-                        
-                        // PL data
-                        await client
-                            .from('pl_database')
-                            .insert(plBatch);
-                        
-                        batchSuccess = true;
-                        uploaded += jobBatch.length;
-                        
-                    } catch (err) {
-                        retryCount++;
-                        if (retryCount >= 3) {
-                            // Final attempt: individual uploads
-                            for (const job of jobBatch) {
-                                try {
-                                    await client.from('jobs').upsert(job, { onConflict: 'job_number' });
-                                    uploaded++;
-                                } catch (e) {
-                                    console.warn(`❌ Failed: ${job.job_number}`);
-                                }
-                            }
-                            batchSuccess = true;
-                        } else {
-                            await new Promise(r => setTimeout(r, 200 * retryCount));
-                        }
+                for (let i = 0; i < uniqueJobs.length; i += CHUNK_SIZE) {
+                    const chunk = uniqueJobs.slice(i, i + CHUNK_SIZE);
+                    const chunkValues = chunk.map(job => {
+                        const status_date = job.status_date || new Date(1900, 0, 1).toISOString();
+                        return `(
+                            '${job.job_id.replace(/'/g, "''")}',
+                            '${job.job_number.replace(/'/g, "''")}',
+                            '${job.name.replace(/'/g, "''")}',
+                            '${job.status.replace(/'/g, "''")}',
+                            '${job.aw_status.replace(/'/g, "''")}',
+                            '${job.raw_aw_status.replace(/'/g, "''")}',
+                            '${job.planning_status.replace(/'/g, "''")}',
+                            '${status_date}',
+                            ${job.setup || 120},
+                            ${job.quantity || 0},
+                            '${(job.machine || '').replace(/'/g, "''")}',
+                            ${job.is_complete || false},
+                            ${job.is_planned || false},
+                            ${job.is_unplanned || false},
+                            ${job.is_deleted || false},
+                            ${job.is_hold || false},
+                            '${(job.new_plat || '').replace(/'/g, "''")}',
+                            '${(job.material_availability || '').replace(/'/g, "''")}',
+                            '${(job.delivered || '').replace(/'/g, "''")}',
+                            '${(job.delivered2 || '').replace(/'/g, "''")}',
+                            '${(job.cutting_method || '').replace(/'/g, "''")}',
+                            '${(job.film || '').replace(/'/g, "''")}',
+                            '${(job.thickness || '').replace(/'/g, "''")}',
+                            '${(job.material_type || '').replace(/'/g, "''")}',
+                            ${job.machine_speed || 200},
+                            ${job.meters || 0},
+                            ${job.setup_time || 120},
+                            ${job.required_time || 0},
+                            ${job.planned_speed || 200},
+                            ${job.actual_speed || 200},
+                            ${job.planned_setup || 120},
+                            ${job.actual_setup || 0},
+                            ${job.downtime || 0},
+                            ${job.printing_duration || 0}
+                        )`;
+                    }).join(',\n');
+                    
+                    const chunkSQL = `
+                        INSERT INTO jobs (
+                            job_id, job_number, name, status, aw_status, raw_aw_status,
+                            planning_status, status_date, setup, quantity, machine,
+                            is_complete, is_planned, is_unplanned, is_deleted, is_hold,
+                            new_plat, material_availability, delivered, delivered2,
+                            cutting_method, film, thickness, material_type,
+                            machine_speed, meters, setup_time, required_time,
+                            planned_speed, actual_speed, planned_setup, actual_setup,
+                            downtime, printing_duration
+                        ) VALUES
+                        ${chunkValues}
+                        ON CONFLICT (job_number) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            status = EXCLUDED.status,
+                            planning_status = EXCLUDED.planning_status,
+                            setup = EXCLUDED.setup,
+                            quantity = EXCLUDED.quantity,
+                            machine = EXCLUDED.machine
+                    `;
+                    
+                    const { error: chunkError } = await client.rpc('exec_sql', { sql: chunkSQL });
+                    if (chunkError) {
+                        console.error(`❌ Chunk ${i/CHUNK_SIZE + 1} failed:`, chunkError);
+                    } else {
+                        inserted += chunk.length;
+                        const elapsed = Math.round((Date.now() - startTime) / 1000);
+                        showUploadProgress(`📊 ${inserted}/${uniqueJobs.length} jobs (${elapsed}s)`, Math.min(95, Math.round((inserted / uniqueJobs.length) * 100)));
+                        console.log(`✅ ${inserted}/${uniqueJobs.length} jobs inserted (${elapsed}s)`);
                     }
                 }
-                
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                const percent = Math.min(95, Math.round((uploaded / uniqueItems.length) * 100));
-                showUploadProgress(`📊 ${uploaded}/${uniqueItems.length} jobs (${elapsed}s)`, percent);
-                console.log(`✅ ${uploaded}/${uniqueItems.length} jobs uploaded (${elapsed}s)`);
+            } else {
+                console.log(`✅ SQL insert executed for ${uniqueJobs.length} jobs`);
             }
             
             // ============================================
-            // STEP 4: Verify
+            // VERIFY
             // ============================================
             const verifyResult = await client
                 .from('jobs')
                 .select('*', { count: 'exact', head: false });
             
             const actualCount = verifyResult.data?.length || 0;
-            
             const totalTime = Math.round((Date.now() - startTime) / 1000);
             
             console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║                    ✅ UPLOAD COMPLETE!                        ║
 ╠════════════════════════════════════════════════════════════════╣
-║  📊 Unique jobs in file:  ${uniqueItems.length}               ║
-║  ✅ Uploaded:             ${uploaded}                          ║
+║  📊 Unique jobs in file:  ${uniqueJobs.length}                ║
 ║  📊 Confirmed in DB:      ${actualCount}                      ║
 ║  🔄 Duplicates removed:   ${duplicateCount}                   ║
 ║  ⏱️  Time:                ${totalTime} seconds                ║
 ╚════════════════════════════════════════════════════════════════╝
             `);
+            
+            if (actualCount < uniqueJobs.length) {
+                console.warn(`⚠️ WARNING: Only ${actualCount} jobs in DB, expected ${uniqueJobs.length}`);
+                console.log('🔄 The remaining jobs may have failed due to constraints.');
+            }
             
             updateUploadStatus('qasem');
             showUploadProgress(`✅ ${actualCount} jobs in database`, 100);
@@ -522,7 +579,7 @@ async function deduplicatedPLUpload(file) {
                 await supabaseSyncAllData();
                 populateProductionFeed();
                 hideUploadProgress();
-                showNotification(`✅ ${actualCount} jobs uploaded (${duplicateCount} duplicates removed)`, 'success');
+                showNotification(`✅ ${actualCount} jobs in database (${duplicateCount} duplicates removed)`, 'success');
                 updateStatistics();
             }, 500);
             
@@ -761,7 +818,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - DEDUPLICATED
+    // PL Upload - SQL BULK INSERT
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -779,7 +836,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                deduplicatedPLUpload(file);
+                sqlBulkUpload(file);
             }
             this.value = '';
         });
@@ -815,7 +872,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.deduplicatedPLUpload = deduplicatedPLUpload;
+window.sqlBulkUpload = sqlBulkUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
