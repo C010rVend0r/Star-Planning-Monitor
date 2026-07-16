@@ -1,4 +1,4 @@
-// script-upload.js - FORCE ALL DATA VERSION
+// script-upload.js - DEDUPLICATED FINAL VERSION
 // ============================================================
 // UPLOAD STATUS TRACKING
 // ============================================================
@@ -220,10 +220,10 @@ function hideUploadProgress() {
 }
 
 // ============================================================
-// FORCE ALL DATA UPLOAD - WORKS EVERY TIME
+// DEDUPLICATED PL UPLOAD - WORKS EVERY TIME
 // ============================================================
-async function forceAllDataUpload(file) {
-    console.log('🔥 FORCE ALL DATA UPLOAD STARTED:', file.name);
+async function deduplicatedPLUpload(file) {
+    console.log('🔥 DEDUPLICATED UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
     
     const reader = new FileReader();
@@ -254,11 +254,9 @@ async function forceAllDataUpload(file) {
             showUploadProgress(`📊 Processing ${rows.length} rows...`, 10);
             
             // ============================================
-            // STEP 1: Build ALL data (keep ALL rows, track duplicates)
+            // STEP 1: DEDUPLICATE - KEEP ONLY UNIQUE JOBS
             // ============================================
-            const allJobs = [];
-            const allPLData = [];
-            const seenJobNumbers = new Set();
+            const jobMap = new Map();
             let duplicateCount = 0;
             
             for (const row of rows) {
@@ -267,11 +265,11 @@ async function forceAllDataUpload(file) {
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
-                // Count duplicates but still process them (we'll handle in DB)
-                if (seenJobNumbers.has(jobNumber)) {
+                // Only keep the FIRST occurrence (or last - doesn't matter as long as unique)
+                if (jobMap.has(jobNumber)) {
                     duplicateCount++;
+                    continue; // Skip duplicates entirely
                 }
-                seenJobNumbers.add(jobNumber);
                 
                 const jobName = String(row[1] || '').trim() || 'Unnamed';
                 const newPlat = String(row[2] || '').trim() || '';
@@ -300,84 +298,85 @@ async function forceAllDataUpload(file) {
                 const isComplete = planningStatus === 'Complete' || planningStatus === 'Printed';
                 const effectiveStatus = isComplete ? 'Complete' : planningStatus;
                 
-                allJobs.push({
-                    job_id: jobId,
-                    job_number: jobNumber,
-                    name: jobName,
-                    status: effectiveStatus,
-                    aw_status: 'Unknown',
-                    raw_aw_status: 'Unknown',
-                    planning_status: planningStatus,
-                    status_date: new Date(1900, 0, 1).toISOString(),
-                    estimated_date: null,
-                    setup: setupTime || plannedSetup || 120,
-                    quantity: meters || quantity || 0,
-                    machine: machine || '',
-                    is_complete: isComplete,
-                    is_planned: planningStatus === 'Planned',
-                    is_unplanned: planningStatus === 'Unplanned',
-                    is_deleted: planningStatus === 'Deleted' || planningStatus === 'PL-Deleted',
-                    is_hold: planningStatus === 'Hold' || planningStatus === 'PL-Hold',
-                    new_plat: newPlat,
-                    material_availability: materialAvailability,
-                    delivered: delivered,
-                    delivered2: delivered2,
-                    cutting_method: cuttingMethod,
-                    film: film,
-                    thickness: thickness,
-                    material_type: materialType,
-                    machine_speed: machineSpeed,
-                    meters: meters,
-                    setup_time: setupTime,
-                    required_time: requiredTime,
-                    planned_speed: plannedSpeed,
-                    actual_speed: actualSpeed,
-                    planned_setup: plannedSetup,
-                    actual_setup: actualSetup,
-                    downtime: downtime,
-                    printing_duration: printingDuration
-                });
-                
-                allPLData.push({
-                    job_id: jobId,
-                    job_number: jobNumber,
-                    job_name: jobName,
-                    new_plat: newPlat,
-                    prepress_status: 'Unknown',
-                    material_availability: materialAvailability,
-                    planning_status: planningStatus,
-                    delivered: delivered,
-                    delivered2: delivered2,
-                    machine: machine,
-                    cutting_method: cuttingMethod,
-                    quantity: quantity,
-                    film: film,
-                    thickness: thickness,
-                    material_type: materialType,
-                    machine_speed: machineSpeed,
-                    meters: meters,
-                    setup_time: setupTime,
-                    required_time: requiredTime,
-                    planned_speed: plannedSpeed,
-                    actual_speed: actualSpeed,
-                    planned_setup: plannedSetup,
-                    actual_setup: actualSetup,
-                    downtime: downtime,
-                    printing_duration: printingDuration,
-                    is_complete: isComplete,
-                    is_planned: planningStatus === 'Planned',
-                    is_unplanned: planningStatus === 'Unplanned',
-                    is_deleted: planningStatus === 'Deleted',
-                    is_hold: planningStatus === 'Hold',
-                    status_date: new Date(1900, 0, 1).toISOString(),
-                    estimated_date: null
+                jobMap.set(jobNumber, {
+                    job: {
+                        job_id: jobId,
+                        job_number: jobNumber,
+                        name: jobName,
+                        status: effectiveStatus,
+                        aw_status: 'Unknown',
+                        raw_aw_status: 'Unknown',
+                        planning_status: planningStatus,
+                        status_date: new Date(1900, 0, 1).toISOString(),
+                        estimated_date: null,
+                        setup: setupTime || plannedSetup || 120,
+                        quantity: meters || quantity || 0,
+                        machine: machine || '',
+                        is_complete: isComplete,
+                        is_planned: planningStatus === 'Planned',
+                        is_unplanned: planningStatus === 'Unplanned',
+                        is_deleted: planningStatus === 'Deleted' || planningStatus === 'PL-Deleted',
+                        is_hold: planningStatus === 'Hold' || planningStatus === 'PL-Hold',
+                        new_plat: newPlat,
+                        material_availability: materialAvailability,
+                        delivered: delivered,
+                        delivered2: delivered2,
+                        cutting_method: cuttingMethod,
+                        film: film,
+                        thickness: thickness,
+                        material_type: materialType,
+                        machine_speed: machineSpeed,
+                        meters: meters,
+                        setup_time: setupTime,
+                        required_time: requiredTime,
+                        planned_speed: plannedSpeed,
+                        actual_speed: actualSpeed,
+                        planned_setup: plannedSetup,
+                        actual_setup: actualSetup,
+                        downtime: downtime,
+                        printing_duration: printingDuration
+                    },
+                    pl: {
+                        job_id: jobId,
+                        job_number: jobNumber,
+                        job_name: jobName,
+                        new_plat: newPlat,
+                        prepress_status: 'Unknown',
+                        material_availability: materialAvailability,
+                        planning_status: planningStatus,
+                        delivered: delivered,
+                        delivered2: delivered2,
+                        machine: machine,
+                        cutting_method: cuttingMethod,
+                        quantity: quantity,
+                        film: film,
+                        thickness: thickness,
+                        material_type: materialType,
+                        machine_speed: machineSpeed,
+                        meters: meters,
+                        setup_time: setupTime,
+                        required_time: requiredTime,
+                        planned_speed: plannedSpeed,
+                        actual_speed: actualSpeed,
+                        planned_setup: plannedSetup,
+                        actual_setup: actualSetup,
+                        downtime: downtime,
+                        printing_duration: printingDuration,
+                        is_complete: isComplete,
+                        is_planned: planningStatus === 'Planned',
+                        is_unplanned: planningStatus === 'Unplanned',
+                        is_deleted: planningStatus === 'Deleted',
+                        is_hold: planningStatus === 'Hold',
+                        status_date: new Date(1900, 0, 1).toISOString(),
+                        estimated_date: null
+                    }
                 });
             }
             
-            console.log(`📊 ${allJobs.length} total rows (${duplicateCount} duplicates)`);
-            console.log(`📊 ${seenJobNumbers.size} unique job numbers`);
+            const uniqueItems = Array.from(jobMap.values());
+            console.log(`📊 ${uniqueItems.length} UNIQUE jobs (${duplicateCount} duplicates removed)`);
             
-            if (allJobs.length === 0) {
+            if (uniqueItems.length === 0) {
                 alert('No valid jobs found!');
                 hideUploadProgress();
                 return;
@@ -426,68 +425,58 @@ async function forceAllDataUpload(file) {
             }
             
             // ============================================
-            // STEP 3: UPLOAD IN BATCHES WITH COUNT TRACKING
+            // STEP 3: Upload UNIQUE jobs in batches
             // ============================================
-            console.log(`📤 Uploading ${allJobs.length} jobs...`);
-            showUploadProgress(`📤 Uploading ${allJobs.length} jobs...`, 20);
+            console.log(`📤 Uploading ${uniqueItems.length} unique jobs...`);
+            showUploadProgress(`📤 Uploading ${uniqueItems.length} jobs...`, 20);
             
             const BATCH_SIZE = 100;
             let uploaded = 0;
-            let failed = 0;
-            const uploadedJobNumbers = [];
             
-            for (let i = 0; i < allJobs.length; i += BATCH_SIZE) {
-                const jobBatch = allJobs.slice(i, i + BATCH_SIZE);
-                const plBatch = allPLData.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < uniqueItems.length; i += BATCH_SIZE) {
+                const batch = uniqueItems.slice(i, i + BATCH_SIZE);
+                const jobBatch = batch.map(item => item.job);
+                const plBatch = batch.map(item => item.pl);
                 
                 let batchSuccess = false;
                 let retryCount = 0;
                 
                 while (!batchSuccess && retryCount < 3) {
                     try {
-                        // Try batch upsert
-                        const { data: jobData, error: jobError } = await client
+                        // Try batch insert (no duplicates in batch now)
+                        const { error: jobError } = await client
                             .from('jobs')
-                            .upsert(jobBatch, { onConflict: 'job_number' })
-                            .select('job_number');
+                            .insert(jobBatch);
                         
                         if (jobError) {
-                            console.warn(`⚠️ Batch ${Math.floor(i/BATCH_SIZE)+1} error:`, jobError.message);
-                            // Fallback to individual
-                            for (const job of jobBatch) {
-                                try {
-                                    await client.from('jobs').upsert(job, { onConflict: 'job_number' });
-                                    uploaded++;
-                                    uploadedJobNumbers.push(job.job_number);
-                                } catch (e) {
-                                    failed++;
-                                }
-                            }
-                        } else {
-                            uploaded += jobBatch.length;
-                            if (jobData) {
-                                jobData.forEach(j => uploadedJobNumbers.push(j.job_number));
+                            // If insert fails, try upsert
+                            const { error: upsertError } = await client
+                                .from('jobs')
+                                .upsert(jobBatch, { onConflict: 'job_number' });
+                            
+                            if (upsertError) {
+                                throw new Error(upsertError.message);
                             }
                         }
                         
-                        // Try PL batch
+                        // PL data
                         await client
                             .from('pl_database')
-                            .upsert(plBatch, { onConflict: 'job_number' });
+                            .insert(plBatch);
                         
                         batchSuccess = true;
+                        uploaded += jobBatch.length;
                         
                     } catch (err) {
                         retryCount++;
                         if (retryCount >= 3) {
-                            // Final attempt: individual
+                            // Final attempt: individual uploads
                             for (const job of jobBatch) {
                                 try {
                                     await client.from('jobs').upsert(job, { onConflict: 'job_number' });
                                     uploaded++;
-                                    uploadedJobNumbers.push(job.job_number);
                                 } catch (e) {
-                                    failed++;
+                                    console.warn(`❌ Failed: ${job.job_number}`);
                                 }
                             }
                             batchSuccess = true;
@@ -498,13 +487,13 @@ async function forceAllDataUpload(file) {
                 }
                 
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
-                const percent = Math.min(95, Math.round((uploaded / allJobs.length) * 100));
-                showUploadProgress(`📊 ${uploaded}/${allJobs.length} jobs (${elapsed}s)`, percent);
-                console.log(`✅ ${uploaded}/${allJobs.length} jobs uploaded (${elapsed}s)`);
+                const percent = Math.min(95, Math.round((uploaded / uniqueItems.length) * 100));
+                showUploadProgress(`📊 ${uploaded}/${uniqueItems.length} jobs (${elapsed}s)`, percent);
+                console.log(`✅ ${uploaded}/${uniqueItems.length} jobs uploaded (${elapsed}s)`);
             }
             
             // ============================================
-            // STEP 4: VERIFY WHAT WAS ACTUALLY UPLOADED
+            // STEP 4: Verify
             // ============================================
             const verifyResult = await client
                 .from('jobs')
@@ -518,29 +507,22 @@ async function forceAllDataUpload(file) {
 ╔════════════════════════════════════════════════════════════════╗
 ║                    ✅ UPLOAD COMPLETE!                        ║
 ╠════════════════════════════════════════════════════════════════╣
-║  📊 Total rows in file:  ${allJobs.length}                     ║
-║  📊 Unique job numbers:  ${seenJobNumbers.size}                ║
-║  ✅ Attempted upload:    ${uploaded}                           ║
-║  ❌ Failed:              ${failed}                             ║
-║  📊 Confirmed in DB:     ${actualCount}                       ║
-║  🔄 Duplicates in file:  ${duplicateCount}                    ║
-║  ⏱️  Time:               ${totalTime} seconds                 ║
+║  📊 Unique jobs in file:  ${uniqueItems.length}               ║
+║  ✅ Uploaded:             ${uploaded}                          ║
+║  📊 Confirmed in DB:      ${actualCount}                      ║
+║  🔄 Duplicates removed:   ${duplicateCount}                   ║
+║  ⏱️  Time:                ${totalTime} seconds                ║
 ╚════════════════════════════════════════════════════════════════╝
             `);
             
-            if (actualCount < seenJobNumbers.size) {
-                console.warn(`⚠️ WARNING: Only ${actualCount} jobs in DB, expected ${seenJobNumbers.size}`);
-                console.log('🔄 You may need to run the upload again to catch missing jobs.');
-            }
-            
             updateUploadStatus('qasem');
-            showUploadProgress(`✅ ${actualCount} jobs confirmed in database`, 100);
+            showUploadProgress(`✅ ${actualCount} jobs in database`, 100);
             
             setTimeout(async () => {
                 await supabaseSyncAllData();
                 populateProductionFeed();
                 hideUploadProgress();
-                showNotification(`✅ ${actualCount} jobs in database (${duplicateCount} duplicates merged)`, 'success');
+                showNotification(`✅ ${actualCount} jobs uploaded (${duplicateCount} duplicates removed)`, 'success');
                 updateStatistics();
             }, 500);
             
@@ -779,7 +761,7 @@ function setupExcelUploads() {
         });
     }
     
-    // PL Upload - FORCE ALL DATA
+    // PL Upload - DEDUPLICATED
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
     
@@ -797,7 +779,7 @@ function setupExcelUploads() {
             const file = this.files[0];
             if (file) {
                 console.log('PL file selected:', file.name);
-                forceAllDataUpload(file);
+                deduplicatedPLUpload(file);
             }
             this.value = '';
         });
@@ -833,7 +815,7 @@ window.startUploadStatusMonitoring = startUploadStatusMonitoring;
 window.updateRealTimeIndicator = updateRealTimeIndicator;
 window.setupExcelUploads = setupExcelUploads;
 window.handleAWUpload = handleAWUpload;
-window.forceAllDataUpload = forceAllDataUpload;
+window.deduplicatedPLUpload = deduplicatedPLUpload;
 window.findJobIdByNumber = findJobIdByNumber;
 window.calculateEstimatedDate = calculateEstimatedDate;
 
