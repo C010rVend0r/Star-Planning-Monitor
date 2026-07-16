@@ -127,30 +127,31 @@
             </div>
 
             <!-- Feed Controls -->
-            <div class="feed-controls">
-                <div class="feed-actions">
-                    <button class="btn btn-upload" id="upload-excel-aw">
-                        <i class="fas fa-file-excel"></i> AW
-                    </button>
-                    <input type="file" id="file-input-aw" accept=".xlsx,.xls" style="display:none;">
-                    
-                    <button class="btn btn-upload" id="upload-excel-pl">
-                        <i class="fas fa-file-excel"></i> PL
-                    </button>
-                    <input type="file" id="file-input-pl" accept=".xlsx,.xls" style="display:none;">
-                    
-                    <button class="btn btn-upload btn-download" id="download-excel-pl">
-                        <i class="fas fa-download"></i> Export
-                    </button>
-                </div>
-                <div class="feed-search">
-                    <input type="text" id="job-search" placeholder="Search jobs...">
-                    <button class="btn filter-btn" id="filter-btn">
-                        <i class="fas fa-filter"></i> Filter
-                        <span class="filter-badge" id="filter-badge">0</span>
-                    </button>
-                </div>
-            </div>
+<!-- Feed Controls - Simplified -->
+<div class="feed-controls">
+    <div class="feed-actions">
+        <button class="btn btn-upload" id="upload-excel-aw">
+            <i class="fas fa-file-excel"></i> AW
+        </button>
+        <input type="file" id="file-input-aw" accept=".xlsx,.xls" style="display:none;">
+        
+        <button class="btn btn-upload" id="upload-excel-pl">
+            <i class="fas fa-file-excel"></i> PL <span style="font-size:9px;background:#28a745;color:white;padding:1px 6px;border-radius:8px;margin-left:4px;">SMART</span>
+        </button>
+        <input type="file" id="file-input-pl" accept=".xlsx,.xls" style="display:none;">
+        
+        <button class="btn btn-upload btn-download" id="download-excel-pl">
+            <i class="fas fa-download"></i> Export
+        </button>
+    </div>
+    <div class="feed-search">
+        <input type="text" id="job-search" placeholder="Search jobs...">
+        <button class="btn filter-btn" id="filter-btn">
+            <i class="fas fa-filter"></i> Filter
+            <span class="filter-badge" id="filter-badge">0</span>
+        </button>
+    </div>
+</div>
 
             <!-- Feed List -->
             <div class="production-feed-container" id="production-feed-container">
