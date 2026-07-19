@@ -144,6 +144,11 @@ function formatTime(date) {
 // ============================================================
 // CREATE JOB ELEMENTS
 // ============================================================
+// feed.js - Update createJobElement function
+// ============================================================
+// CREATE JOB ELEMENT - WITH PRIORITY & COMPLETE STATUS
+// ============================================================
+
 function createJobElement(jobId, jobData) {
     const job = document.createElement('div');
     job.className = 'job';
@@ -154,9 +159,21 @@ function createJobElement(jobId, jobData) {
     const duration = Math.round(calculateJobDuration(jobData, jobId));
     const printingTime = Math.round(jobData.quantity / currentSpeed);
     
-    const awStatus = jobData.awStatus || jobData.status || 'Missing Data';
-    const statusColor = statusColorMap[awStatus] || '#6c757d';
-    const statusDisplay = statusDisplayMap[awStatus] || awStatus || 'Unknown';
+    // ✅ Check if job is complete
+    const isComplete = jobData.planningStatus === 'Complete' || jobData.isComplete === true;
+    const isPlanned = jobData.planningStatus === 'Planned';
+    
+    // ✅ If complete, add printed class and disable dragging
+    if (isComplete) {
+        job.classList.add('job-printed');
+        job.setAttribute('draggable', 'false');
+    }
+    
+    // AW status handling
+    let awStatus = jobData.awStatus || jobData.status || 'Missing Data';
+    const displayStatus = isComplete ? 'Complete' : awStatus;
+    const statusColor = isComplete ? '#95a5a6' : (statusColorMap[awStatus] || '#6c757d');
+    const statusDisplay = isComplete ? 'Complete' : (statusDisplayMap[awStatus] || awStatus || 'Unknown');
     
     // Format the status date - only date, no time
     let statusDateFormatted = '';
@@ -170,6 +187,16 @@ function createJobElement(jobId, jobData) {
     } else {
         statusDateFormatted = '01/01/1900';
     }
+    
+    // ✅ Get priority
+    const priority = jobData.priority !== undefined ? jobData.priority : null;
+    
+    // ✅ Priority color coding
+    let priorityColor = '#6c757d';
+    let priorityBgColor = 'rgba(108, 117, 125, 0.15)';
+    let priorityBorderColor = 'rgba(108, 117, 125, 0.3)';
+    
+
     
     // Merge AW status with date
     const awDisplayText = `AW: ${statusDisplay} since: ${statusDateFormatted}`;
@@ -188,10 +215,75 @@ function createJobElement(jobId, jobData) {
     }
     const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
+    // ✅ Build priority badge HTML
+    let priorityBadgeHTML = '';
+    if (priority !== null && !isComplete) {
+        priorityBadgeHTML = `
+            <span class="job-priority-badge" 
+                  style="background-color:${priorityBgColor}; 
+                         color:${priorityColor}; 
+                         border:1px solid ${priorityBorderColor};
+                         font-size:8px;
+                         font-weight:700;
+                         padding:1px 5px;
+                         border-radius:3px;
+                         margin-left:4px;
+                         white-space:nowrap;
+                         display:inline-block;
+                         animation: priorityPulse 2s ease-in-out infinite;">
+                ⚡ ${priority}
+            </span>
+        `;
+    }
+    
+    // ✅ Complete badge for completed jobs
+    let completeBadgeHTML = '';
+    if (isComplete) {
+        completeBadgeHTML = `
+            <span class="job-complete-badge" 
+                  style="background-color:#6c757d20; 
+                         color:#6c757d; 
+                         border:1px solid #6c757d40;
+                         font-size:8px;
+                         font-weight:700;
+                         padding:1px 5px;
+                         border-radius:3px;
+                         margin-left:4px;
+                         white-space:nowrap;
+                         display:inline-block;">
+                ✅ Complete
+            </span>
+        `;
+    }
+    
+    // ✅ Planned badge for planned jobs
+    let plannedBadgeHTML = '';
+    if (isPlanned && !isComplete) {
+        plannedBadgeHTML = `
+            <span class="job-planned-badge" 
+                  style="background-color:#28a74520; 
+                         color:#28a745; 
+                         border:1px solid #28a74540;
+                         font-size:8px;
+                         font-weight:700;
+                         padding:1px 5px;
+                         border-radius:3px;
+                         margin-left:4px;
+                         white-space:nowrap;
+                         display:inline-block;
+                         animation: plannedPulse 3s ease-in-out infinite;">
+                📋 Planned
+            </span>
+        `;
+    }
+    
     job.innerHTML = `
         <div class="job-name">
             <span class="job-number-badge">${jobNumber}</span>
             ${jobData.name}
+            ${plannedBadgeHTML}
+            ${completeBadgeHTML}
+            ${priorityBadgeHTML}
         </div>
         <div class="job-details">
             <div class="job-duration">${duration} min</div>
@@ -212,7 +304,8 @@ function createJobElement(jobId, jobData) {
                            data-job-id="${jobId}"
                            value="${jobData.setup}" 
                            min="0" step="1"
-                           title="Setup time in minutes">
+                           title="Setup time in minutes"
+                           ${isComplete ? 'disabled' : ''}>
                 </label>
             </div>
             <div class="job-field-group">
@@ -221,7 +314,8 @@ function createJobElement(jobId, jobData) {
                            data-job-id="${jobId}"
                            value="${Math.round(jobData.quantity)}" 
                            min="0" step="1"
-                           title="Quantity in meters">
+                           title="Quantity in meters"
+                           ${isComplete ? 'disabled' : ''}>
                 </label>
             </div>
             <div class="job-field-group">
@@ -230,63 +324,139 @@ function createJobElement(jobId, jobData) {
                            data-job-id="${jobId}"
                            value="${currentSpeed}" 
                            min="1" step="1"
-                           title="Press speed in meters per minute">
+                           title="Press speed in meters per minute"
+                           ${isComplete ? 'disabled' : ''}>
                 </label>
             </div>
         </div>
     `;
     
-    // Setup input event listeners (unchanged)
-    const setupInput = job.querySelector('.job-setup-input');
-    if (setupInput) {
-        setupInput.addEventListener('change', function(e) {
-            e.stopPropagation();
-            const jobId = this.getAttribute('data-job-id');
-            const newSetup = this.value;
-            if (updateJobSetup(jobId, newSetup)) {
-                this.classList.add('field-updated');
-                setTimeout(() => this.classList.remove('field-updated'), 2000);
-            }
-        });
-        setupInput.addEventListener('click', e => e.stopPropagation());
+    // ✅ Setup input event listeners (only if not complete)
+    if (!isComplete) {
+        const setupInput = job.querySelector('.job-setup-input');
+        if (setupInput) {
+            setupInput.addEventListener('change', function(e) {
+                e.stopPropagation();
+                const jobId = this.getAttribute('data-job-id');
+                const newSetup = this.value;
+                if (updateJobSetup(jobId, newSetup)) {
+                    this.classList.add('field-updated');
+                    setTimeout(() => this.classList.remove('field-updated'), 2000);
+                }
+            });
+            setupInput.addEventListener('click', e => e.stopPropagation());
+        }
+        
+        const quantityInput = job.querySelector('.job-quantity-input');
+        if (quantityInput) {
+            quantityInput.addEventListener('change', function(e) {
+                e.stopPropagation();
+                const jobId = this.getAttribute('data-job-id');
+                const newQuantity = this.value;
+                if (updateJobQuantity(jobId, newQuantity)) {
+                    this.classList.add('field-updated');
+                    setTimeout(() => this.classList.remove('field-updated'), 2000);
+                }
+            });
+            quantityInput.addEventListener('click', e => e.stopPropagation());
+        }
+        
+        const speedInput = job.querySelector('.job-speed-input');
+        if (speedInput) {
+            speedInput.addEventListener('change', function(e) {
+                e.stopPropagation();
+                const jobId = this.getAttribute('data-job-id');
+                const newSpeed = this.value;
+                if (updateJobSpeed(jobId, newSpeed)) {
+                    this.classList.add('field-updated');
+                    setTimeout(() => this.classList.remove('field-updated'), 2000);
+                }
+            });
+            speedInput.addEventListener('click', e => e.stopPropagation());
+        }
     }
     
-    const quantityInput = job.querySelector('.job-quantity-input');
-    if (quantityInput) {
-        quantityInput.addEventListener('change', function(e) {
-            e.stopPropagation();
-            const jobId = this.getAttribute('data-job-id');
-            const newQuantity = this.value;
-            if (updateJobQuantity(jobId, newQuantity)) {
-                this.classList.add('field-updated');
-                setTimeout(() => this.classList.remove('field-updated'), 2000);
-            }
-        });
-        quantityInput.addEventListener('click', e => e.stopPropagation());
-    }
-    
-    const speedInput = job.querySelector('.job-speed-input');
-    if (speedInput) {
-        speedInput.addEventListener('change', function(e) {
-            e.stopPropagation();
-            const jobId = this.getAttribute('data-job-id');
-            const newSpeed = this.value;
-            if (updateJobSpeed(jobId, newSpeed)) {
-                this.classList.add('field-updated');
-                setTimeout(() => this.classList.remove('field-updated'), 2000);
-            }
-        });
-        speedInput.addEventListener('click', e => e.stopPropagation());
-    }
-    
+    // ✅ Click event - show on timeline if Planned, otherwise select
     job.addEventListener('click', function(e) {
         e.stopPropagation();
+        
+        // Don't trigger if clicking on inputs or buttons
+        if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
+            return;
+        }
+        
+        const jobId = this.getAttribute('data-job-id');
+        const jobData = jobDatabase[jobId];
+        
+        // ✅ If the job is Planned and not complete, show it on the timeline
+        if (jobData && jobData.planningStatus === 'Planned' && !jobData.isComplete) {
+            console.log('Planned job clicked - showing on timeline:', jobId);
+            if (typeof showJobOnTimeline === 'function') {
+                showJobOnTimeline(jobId);
+            } else if (typeof window.showJobOnTimeline === 'function') {
+                window.showJobOnTimeline(jobId);
+            }
+            return;
+        }
+        
+        // Otherwise select the job
         selectJob(this);
     });
     
+    // Double click always opens modal
+    job.addEventListener('dblclick', function(e) {
+        e.stopPropagation();
+        if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
+            return;
+        }
+        const jobId = this.getAttribute('data-job-id');
+        if (jobId && typeof openJobDetailsModal === 'function') {
+            openJobDetailsModal(jobId);
+        }
+    });
+    
+    // Shift+click or Ctrl+click always opens modal
+    job.addEventListener('click', function(e) {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+            e.stopPropagation();
+            if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
+                return;
+            }
+            const jobId = this.getAttribute('data-job-id');
+            if (jobId && typeof openJobDetailsModal === 'function') {
+                openJobDetailsModal(jobId);
+            }
+        }
+    });
+    
+    // Tooltip for priority
+    if (priority !== null && !isComplete) {
+        const priorityBadge = job.querySelector('.job-priority-badge');
+        if (priorityBadge) {
+            let priorityLabel = 'Priority';
+            if (priority <= 3) priorityLabel = 'Critical Priority';
+            else if (priority <= 10) priorityLabel = 'High Priority';
+            else if (priority <= 50) priorityLabel = 'Medium Priority';
+            else if (priority <= 100) priorityLabel = 'Low Priority';
+            else priorityLabel = 'Lowest Priority';
+            
+            priorityBadge.setAttribute('title', `${priorityLabel}: ${priority}`);
+        }
+    }
+    
+    // Add tooltip for completed jobs
+    if (isComplete) {
+        job.setAttribute('title', `Completed - ${jobData.name || jobId}`);
+    }
+    
     return job;
 }
-// feed.js - Update createFeedJobElement
+// ============================================================
+// CREATE FEED JOB ELEMENT - WITH PRIORITY DISPLAY & CLICK TO VIEW
+// ============================================================
+// ============================================================
+// CREATE FEED JOB ELEMENT - WITH PRIORITY DISPLAY & CLICK TO VIEW
+// ============================================================
 
 function createFeedJobElement(jobId, jobData) {
     const feedJob = document.createElement('div');
@@ -294,6 +464,7 @@ function createFeedJobElement(jobId, jobData) {
     feedJob.setAttribute('data-job-id', jobId);
     feedJob.setAttribute('draggable', 'true');
     
+    // Calculate duration for display
     const duration = calculateJobDuration(jobData, jobId);
     
     // AW status - handle missing data
@@ -327,7 +498,10 @@ function createFeedJobElement(jobId, jobData) {
     const plStatus = jobData.planningStatus || 'Unplanned';
     const plDisplayStatus = statusDisplayMap[plStatus] || plStatus || 'Unknown';
     const plStatusColor = statusColorMap[plStatus] || '#6c757d';
+    const isPlanned = plStatus === 'Planned';
+    const isComplete = plStatus === 'Complete' || plStatus === 'Printed';
     
+    // Job number
     const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
     
     // Format estimated date
@@ -344,36 +518,306 @@ function createFeedJobElement(jobId, jobData) {
     // Check if estimated date should be shown
     const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
+    // Get priority (lower number = higher priority)
+    const priority = jobData.priority !== undefined ? jobData.priority : null;
+    const priorityDisplay = priority !== null ? `Priority: ${priority}` : '';
+    
+    // Priority color coding
+    let priorityColor = '#6c757d';
+    let priorityBgColor = 'rgba(108, 117, 125, 0.15)';
+    let priorityBorderColor = 'rgba(108, 117, 125, 0.3)';
+    
+    if (priority !== null) {
+        if (priority <= 3) {
+            priorityColor = '#dc3545';
+            priorityBgColor = 'rgba(220, 53, 69, 0.15)';
+            priorityBorderColor = 'rgba(220, 53, 69, 0.3)';
+        } else if (priority <= 10) {
+            priorityColor = '#fd7e14';
+            priorityBgColor = 'rgba(253, 126, 20, 0.15)';
+            priorityBorderColor = 'rgba(253, 126, 20, 0.3)';
+        } else if (priority <= 50) {
+            priorityColor = '#ffc107';
+            priorityBgColor = 'rgba(255, 193, 7, 0.15)';
+            priorityBorderColor = 'rgba(255, 193, 7, 0.3)';
+        } else if (priority <= 100) {
+            priorityColor = '#17a2b8';
+            priorityBgColor = 'rgba(23, 162, 184, 0.15)';
+            priorityBorderColor = 'rgba(23, 162, 184, 0.3)';
+        } else {
+            priorityColor = '#6c757d';
+            priorityBgColor = 'rgba(108, 117, 125, 0.15)';
+            priorityBorderColor = 'rgba(108, 117, 125, 0.3)';
+        }
+    }
+    
+    // Check if job is on timeline
+    const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
+    const timelineIndicator = isOnTimeline ? '' : '';
+    const machineDisplay = jobData.machine ? `Machine ${jobData.machine}` : '';
+    
+    // Add classes for planned jobs (for styling only)
+    if (isPlanned && isOnTimeline) {
+        feedJob.classList.add('feed-job-planned-on-timeline');
+        feedJob.setAttribute('title', `Click to view "${jobData.name || jobId}" on timeline`);
+        feedJob.style.cursor = 'pointer';
+    } else if (isPlanned) {
+        feedJob.classList.add('feed-job-planned');
+    }
+    
+    if (isComplete) {
+        feedJob.classList.add('feed-job-complete');
+    }
+    
+    // Click hint for Planned jobs on timeline
+    const clickHint = (isPlanned && isOnTimeline) ? 
+        `<span class="feed-click-hint" style="font-size:9px; color:#17a2b8; margin-left:4px; animation: clickHintPulse 2s ease-in-out infinite;">👆 Click to view</span>` : '';
+    
+    // ✅ REMOVED: plannedBadge - no longer needed since PL status already shows it
+    // Only show complete badge for completed jobs
+    const completeBadge = isComplete ? 
+        `<span class="feed-complete-badge" style="font-size:9px; background:#6c757d20; color:#6c757d; border:1px solid #6c757d40; padding:1px 6px; border-radius:3px; margin-left:4px;">✅ Complete</span>` : '';
+    
     feedJob.innerHTML = `
         <div class="feed-item-content">
-            <span class="feed-job-number">${jobNumber}</span>
-            <span class="feed-job-name">${jobData.name || 'Unnamed'}</span>
+            <div class="feed-item-header">
+                <span class="feed-job-number">${jobNumber}</span>
+                <span class="feed-job-name">${jobData.name || 'Unnamed'}</span>
+                ${completeBadge}
+                ${priorityDisplay ? `
+                    <span class="feed-priority" 
+                          style="background-color:${priorityBgColor}; 
+                                 color:${priorityColor}; 
+                                 border:1px solid ${priorityBorderColor};
+                                 font-size:10px;
+                                 padding:2px 6px;
+                                 border-radius:3px;
+                                 font-weight:600;
+                                 margin-left:6px;">
+                        ⚡ ${priorityDisplay}
+                    </span>
+                ` : ''}
+                ${timelineIndicator ? `
+                    <span class="feed-timeline-indicator" 
+                          style="font-size:12px; 
+                                 color:#28a745; 
+                                 margin-left:4px;"
+                          title="Job is on timeline">
+                        ${timelineIndicator}
+                    </span>
+                ` : ''}
+                ${machineDisplay ? `
+                    <span class="feed-machine-badge" 
+                          style="font-size:9px; 
+                                 background-color:#e9ecef; 
+                                 color:#495057; 
+                                 padding:1px 6px; 
+                                 border-radius:3px; 
+                                 margin-left:4px;">
+                        ⚙️ ${machineDisplay}
+                    </span>
+                ` : ''}
+                ${clickHint}
+            </div>
             <div class="feed-status-wrapper">
                 <span class="feed-status" 
                       data-raw-status="${awStatus}"
-                      style="background-color:${statusColor}20; color:${statusColor}; border:1px solid ${statusColor}40;">
+                      style="background-color:${statusColor}20; 
+                             color:${statusColor}; 
+                             border:1px solid ${statusColor}40;
+                             padding:2px 8px;
+                             border-radius:3px;
+                             font-size:11px;">
                     AW: ${statusDisplay} since: ${statusDateFormatted}
                 </span>
                 ${showEstimated && estimatedDisplayText ? 
-                    `<span class="feed-estimated-date" style="color:${statusColor}; background-color:${statusColor}15; border-color:${statusColor}40;">
+                    `<span class="feed-estimated-date" 
+                           style="color:${statusColor}; 
+                                  background-color:${statusColor}15; 
+                                  border-color:${statusColor}40;
+                                  font-size:10px;
+                                  padding:1px 6px;
+                                  border-radius:3px;
+                                  border:1px solid;
+                                  margin-left:4px;">
                         ${estimatedDisplayText}
                     </span>` : ''
                 }
             </div>
-            <span class="feed-pl-status" 
-                  data-raw-pl-status="${plStatus}"
-                  style="background-color:${plStatusColor}20; color:${plStatusColor}; border:1px solid ${plStatusColor}40;">
-                PL: ${plDisplayStatus}
-            </span>
+            <div class="feed-pl-status-wrapper">
+                <span class="feed-pl-status" 
+                      data-raw-pl-status="${plStatus}"
+                      style="background-color:${plStatusColor}20; 
+                             color:${plStatusColor}; 
+                             border:1px solid ${plStatusColor}40;
+                             padding:2px 8px;
+                             border-radius:3px;
+                             font-size:11px;">
+                    PL: ${plDisplayStatus}
+                </span>
+                ${jobData.quantity ? `
+                    <span class="feed-quantity" 
+                          style="font-size:10px; 
+                                 color:#6c757d; 
+                                 margin-left:6px;">
+                        QTY: ${Math.round(jobData.quantity)}m
+                    </span>
+                ` : ''}
+                ${jobData.setup ? `
+                    <span class="feed-setup" 
+                          style="font-size:10px; 
+                                 color:#6c757d; 
+                                 margin-left:6px;">
+                        Setup: ${Math.round(jobData.setup)}min
+                    </span>
+                ` : ''}
+                ${duration ? `
+                    <span class="feed-duration" 
+                          style="font-size:10px; 
+                                 color:#6c757d; 
+                                 margin-left:6px;">
+                        Duration: ${Math.round(duration)}min
+                    </span>
+                ` : ''}
+            </div>
         </div>
     `;
     
+    // ✅ Click event - Unified behavior
     feedJob.addEventListener('click', function(e) {
         e.stopPropagation();
+        
+        // Don't trigger if clicking on inputs, buttons, or status elements
+        if (e.target.closest('input') || e.target.closest('button') || 
+            e.target.closest('.feed-status') || e.target.closest('.feed-pl-status')) {
+            return;
+        }
+        
+        const jobId = this.getAttribute('data-job-id');
+        const jobData = jobDatabase[jobId];
+        
+        // ✅ Only Planned jobs on timeline open with single click
+        if (jobData && jobData.planningStatus === 'Planned') {
+            const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
+            if (isOnTimeline) {
+                console.log('Planned feed job clicked - showing on timeline:', jobId);
+                if (typeof showJobOnTimeline === 'function') {
+                    showJobOnTimeline(jobId);
+                } else if (typeof window.showJobOnTimeline === 'function') {
+                    window.showJobOnTimeline(jobId);
+                }
+                return;
+            }
+        }
+        
+        // ✅ For all other jobs: select (not open modal)
         selectJob(this);
     });
     
+    // ✅ Double click always opens modal for ALL jobs
+    feedJob.addEventListener('dblclick', function(e) {
+        e.stopPropagation();
+        const jobId = this.getAttribute('data-job-id');
+        if (typeof openJobDetailsModal === 'function') {
+            openJobDetailsModal(jobId);
+        }
+    });
+    
+    // ✅ Shift+click or Ctrl+click always opens modal
+    feedJob.addEventListener('click', function(e) {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+            e.stopPropagation();
+            const jobId = this.getAttribute('data-job-id');
+            if (typeof openJobDetailsModal === 'function') {
+                openJobDetailsModal(jobId);
+            }
+        }
+    });
+    
+    // Drag events for visual feedback
+    feedJob.addEventListener('dragstart', function(e) {
+        this.classList.add('feed-job-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', jobId);
+    });
+    
+    feedJob.addEventListener('dragend', function(e) {
+        this.classList.remove('feed-job-dragging');
+    });
+    
     return feedJob;
+}
+// feed.js - Add function to update feed item status
+
+function updateFeedItemStatus(jobId) {
+    const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
+    if (!feedItem) return;
+    
+    const jobData = jobDatabase[jobId];
+    if (!jobData) return;
+    
+    const plStatus = jobData.planningStatus || 'Unplanned';
+    const isComplete = plStatus === 'Complete' || jobData.isComplete === true;
+    const isPlanned = plStatus === 'Planned';
+    const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
+    
+    // Update PL status element
+    const plStatusElement = feedItem.querySelector('.feed-pl-status');
+    if (plStatusElement) {
+        const plStatusColor = isComplete ? '#6c757d' : (statusColorMap[plStatus] || '#6c757d');
+        const displayName = isComplete ? 'Complete' : (statusDisplayMap[plStatus] || plStatus || 'Unknown');
+        
+        plStatusElement.setAttribute('data-raw-pl-status', plStatus);
+        plStatusElement.textContent = `PL: ${displayName}`;
+        plStatusElement.style.backgroundColor = `${plStatusColor}20`;
+        plStatusElement.style.color = plStatusColor;
+        plStatusElement.style.border = `1px solid ${plStatusColor}40`;
+    }
+    
+    // Update classes
+    feedItem.classList.remove('feed-job-planned', 'feed-job-planned-on-timeline', 'feed-job-complete');
+    
+    if (isComplete) {
+        feedItem.classList.add('feed-job-complete');
+    } else if (isPlanned && isOnTimeline) {
+        feedItem.classList.add('feed-job-planned-on-timeline');
+    } else if (isPlanned) {
+        feedItem.classList.add('feed-job-planned');
+    }
+    
+    // Update badges
+    const header = feedItem.querySelector('.feed-item-header');
+    if (header) {
+        // Remove existing badges
+        header.querySelectorAll('.feed-planned-badge, .feed-complete-badge').forEach(el => el.remove());
+        
+        if (isComplete) {
+            const completeBadge = document.createElement('span');
+            completeBadge.className = 'feed-complete-badge';
+            completeBadge.style.cssText = 'font-size:9px; background:#6c757d20; color:#6c757d; border:1px solid #6c757d40; padding:1px 6px; border-radius:3px; margin-left:4px;';
+            completeBadge.textContent = '✅ Complete';
+            header.appendChild(completeBadge);
+        } else if (isPlanned) {
+            const plannedBadge = document.createElement('span');
+            plannedBadge.className = 'feed-planned-badge';
+            plannedBadge.style.cssText = 'font-size:9px; background:#28a74520; color:#28a745; border:1px solid #28a74540; padding:1px 6px; border-radius:3px; margin-left:4px; animation: plannedPulse 3s ease-in-out infinite;';
+            plannedBadge.textContent = '📋 Planned';
+            header.appendChild(plannedBadge);
+        }
+    }
+}
+
+// Expose the function
+window.updateFeedItemStatus = updateFeedItemStatus;
+// ============================================================
+// FORMAT DATE ONLY - "08/03/2026"
+// ============================================================
+function formatDateOnly(date) {
+    if (!date || isNaN(date.getTime())) return '01/01/1900';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
 }
 // ============================================================
 // FORMAT DATE ONLY - "08/03/2026"
@@ -1312,6 +1756,7 @@ function updateTime() {
     const currentTimeElement = document.getElementById('current-time');
     if (currentTimeElement) currentTimeElement.textContent = timeString;
     updateAllJobTimes();
+    // ✅ updateCompletedJobs already handles ruler regeneration
     updateCompletedJobs();
 }
 
@@ -1369,13 +1814,16 @@ function startJobTimeUpdates() {
     setInterval(updateAllJobTimes, 60000);
 }
 
+// timeline.js - Replace startDynamicTimeUpdates
+
 function startDynamicTimeUpdates() {
     setInterval(() => {
         updateAllJobTimes();
         updateAllMachineStatuses();
         updateAllJobColors();
-        updateCompletedJobs();
+        updateCompletedJobs(); // This already regenerates rulers when needed
         updateAllTimelineScrollPositions();
+        // ✅ Don't regenerate rulers here - they'll be regenerated when needed
     }, 30000);
 }
 
