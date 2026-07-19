@@ -315,34 +315,64 @@ function setupEventListeners() {
     console.log('Calling setupExcelUploads...');
     setupExcelUploads();
     
-    document.addEventListener('click', function(e) {
-        const feedJob = e.target.closest('.feed-job');
-        if (feedJob) {
-            if (e.target.closest('input') || e.target.closest('button') || 
-                e.target.closest('.feed-status') || e.target.closest('.feed-pl-status')) {
-                return;
-            }
-            const jobId = feedJob.getAttribute('data-job-id');
-            if (jobId) {
-                e.stopPropagation();
-                console.log('Feed job clicked:', jobId);
+// In main.js - Update the click handler for timeline jobs
+
+// In main.js - Replace the click handler for feed jobs
+
+document.addEventListener('click', function(e) {
+    const feedJob = e.target.closest('.feed-job');
+    if (feedJob) {
+        // Don't trigger if clicking on inputs, buttons, or status elements
+        if (e.target.closest('input') || e.target.closest('button') || 
+            e.target.closest('.feed-status') || e.target.closest('.feed-pl-status')) {
+            return;
+        }
+        const jobId = feedJob.getAttribute('data-job-id');
+        if (jobId) {
+            e.stopPropagation();
+            const jobData = jobDatabase[jobId];
+            
+            // ✅ If the job is Planned and on timeline, show it on the timeline
+            if (jobData && jobData.planningStatus === 'Planned') {
+                const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
+                if (isOnTimeline) {
+                    console.log('Planned feed job clicked - showing on timeline:', jobId);
+                    showJobOnTimeline(jobId);
+                } else {
+                    // If Planned but not on timeline (shouldn't happen, but just in case)
+                    console.log('Planned job not on timeline yet - opening modal:', jobId);
+                    openJobDetailsModal(jobId);
+                }
+            } else {
+                // Otherwise open the modal
+                console.log('Feed job clicked - opening modal:', jobId);
                 openJobDetailsModal(jobId);
             }
         }
-        
-        const timelineJob = e.target.closest('.job');
-        if (timelineJob) {
-            if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
-                return;
-            }
-            const jobId = timelineJob.getAttribute('data-job-id');
-            if (jobId) {
-                e.stopPropagation();
+    }
+    
+    const timelineJob = e.target.closest('.job');
+    if (timelineJob) {
+        if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
+            return;
+        }
+        const jobId = timelineJob.getAttribute('data-job-id');
+        if (jobId) {
+            e.stopPropagation();
+            const jobData = jobDatabase[jobId];
+            
+            // ✅ If the job is Planned, show it on the timeline
+            if (jobData && jobData.planningStatus === 'Planned') {
+                console.log('Planned job clicked - showing on timeline:', jobId);
+                showJobOnTimeline(jobId);
+            } else {
+                // Otherwise open the modal
                 console.log('Timeline job clicked:', jobId);
                 openJobDetailsModal(jobId);
             }
         }
-    });
+    }
+});
 }
 
 function handleKeydown(e) {
