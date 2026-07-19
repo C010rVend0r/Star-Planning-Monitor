@@ -6,8 +6,8 @@
 // actual Supabase credentials from:
 // https://supabase.com/dashboard/project/jeqbpugoicguypqapuwg/settings/api
 
-const SUPABASE_URL = 'https://jeqbpugoicguypqapuwg.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_Rk2qsV6RwoBDzXNoYKoKfw_ur9D3j4l'; // publishable key (not the secret key)
+const SUPABASE_URL = 'https://wjnynzazfganrqoacpdp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_9Oqodws7pAh3RO4xDlgH6Q_FOgf7aWo'; // publishable key (not the secret key)
 
 let supabaseClient = null;
 
@@ -542,19 +542,186 @@ async function supabaseSyncAllData() {
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
+// supabase.js - Fix convertSnakeToCamel
+
+// supabase.js - Fix convertSnakeToCamel
+
 function convertSnakeToCamel(obj) {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
-        const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        let camelKey;
+        // Special cases
+        if (key === 'raw_aw_status') {
+            camelKey = 'rawAWStatus'; // ✅ CORRECT
+        } else if (key === 'aw_status') {
+            camelKey = 'awStatus';
+        } else if (key === 'is_unplanned') {
+            camelKey = 'isUnplanned';
+        } else if (key === 'planning_status') {
+            camelKey = 'planningStatus';
+        } else if (key === 'status_date') {
+            camelKey = 'statusDate';
+        } else if (key === 'estimated_date') {
+            camelKey = 'estimatedDate';
+        } else if (key === 'machine_speed') {
+            camelKey = 'machineSpeed';
+        } else if (key === 'setup_time') {
+            camelKey = 'setupTime';
+        } else if (key === 'required_time') {
+            camelKey = 'requiredTime';
+        } else if (key === 'planned_speed') {
+            camelKey = 'plannedSpeed';
+        } else if (key === 'actual_speed') {
+            camelKey = 'actualSpeed';
+        } else if (key === 'planned_setup') {
+            camelKey = 'plannedSetup';
+        } else if (key === 'actual_setup') {
+            camelKey = 'actualSetup';
+        } else if (key === 'printing_duration') {
+            camelKey = 'printingDuration';
+        } else if (key === 'cutting_method') {
+            camelKey = 'cuttingMethod';
+        } else if (key === 'material_type') {
+            camelKey = 'materialType';
+        } else if (key === 'material_availability') {
+            camelKey = 'materialAvailability';
+        } else if (key === 'job_number') {
+            camelKey = 'jobNumber';
+        } else if (key === 'job_name') {
+            camelKey = 'jobName';
+        } else if (key === 'new_plat') {
+            camelKey = 'newPlat';
+        } else if (key === 'prepress_status') {
+            camelKey = 'prepressStatus';
+        } else if (key === 'is_complete') {
+            camelKey = 'isComplete';
+        } else if (key === 'is_planned') {
+            camelKey = 'isPlanned';
+        } else if (key === 'is_deleted') {
+            camelKey = 'isDeleted';
+        } else if (key === 'is_hold') {
+            camelKey = 'isHold';
+        } else if (key === 'delivered2') {
+            camelKey = 'delivered2';
+        } else if (key === 'color') {
+            camelKey = 'color';
+        } else if (key === 'priority') {
+            camelKey = 'priority';
+        } else if (key === 'setup') {
+            camelKey = 'setup';
+        } else if (key === 'quantity') {
+            camelKey = 'quantity';
+        } else if (key === 'status') {
+            camelKey = 'status';
+        } else if (key === 'name') {
+            camelKey = 'name';
+        } else if (key === 'machine') {
+            camelKey = 'machine';
+        } else if (key === 'delivered') {
+            camelKey = 'delivered';
+        } else if (key === 'film') {
+            camelKey = 'film';
+        } else if (key === 'thickness') {
+            camelKey = 'thickness';
+        } else if (key === 'downtime') {
+            camelKey = 'downtime';
+        } else {
+            // Default conversion
+            camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        }
         result[camelKey] = value;
     }
     return result;
 }
 
+// supabase.js - Fix convertCamelToSnake
+// supabase.js - Fix convertCamelToSnake
+
 function convertCamelToSnake(obj) {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
-        const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+        let snakeKey;
+        // Special cases for specific fields
+        if (key === 'rawAWStatus') {
+            snakeKey = 'raw_aw_status'; // ✅ CORRECT: raw_aw_status
+        } else if (key === 'awStatus') {
+            snakeKey = 'aw_status';
+        } else if (key === 'isUnprinted') {
+            snakeKey = 'is_unplanned';
+        } else if (key === 'isUnplanned') {
+            snakeKey = 'is_unplanned';
+        } else if (key === 'planningStatus') {
+            snakeKey = 'planning_status';
+        } else if (key === 'statusDate') {
+            snakeKey = 'status_date';
+        } else if (key === 'estimatedDate') {
+            snakeKey = 'estimated_date';
+        } else if (key === 'machineSpeed') {
+            snakeKey = 'machine_speed';
+        } else if (key === 'setupTime') {
+            snakeKey = 'setup_time';
+        } else if (key === 'requiredTime') {
+            snakeKey = 'required_time';
+        } else if (key === 'plannedSpeed') {
+            snakeKey = 'planned_speed';
+        } else if (key === 'actualSpeed') {
+            snakeKey = 'actual_speed';
+        } else if (key === 'plannedSetup') {
+            snakeKey = 'planned_setup';
+        } else if (key === 'actualSetup') {
+            snakeKey = 'actual_setup';
+        } else if (key === 'printingDuration') {
+            snakeKey = 'printing_duration';
+        } else if (key === 'cuttingMethod') {
+            snakeKey = 'cutting_method';
+        } else if (key === 'materialType') {
+            snakeKey = 'material_type';
+        } else if (key === 'materialAvailability') {
+            snakeKey = 'material_availability';
+        } else if (key === 'jobNumber') {
+            snakeKey = 'job_number';
+        } else if (key === 'jobName') {
+            snakeKey = 'job_name';
+        } else if (key === 'newPlat') {
+            snakeKey = 'new_plat';
+        } else if (key === 'prepressStatus') {
+            snakeKey = 'prepress_status';
+        } else if (key === 'isComplete') {
+            snakeKey = 'is_complete';
+        } else if (key === 'isPlanned') {
+            snakeKey = 'is_planned';
+        } else if (key === 'isDeleted') {
+            snakeKey = 'is_deleted';
+        } else if (key === 'isHold') {
+            snakeKey = 'is_hold';
+        } else if (key === 'color') {
+            snakeKey = 'color';
+        } else if (key === 'delivered') {
+            snakeKey = 'delivered';
+        } else if (key === 'delivered2') {
+            snakeKey = 'delivered2';
+        } else if (key === 'film') {
+            snakeKey = 'film';
+        } else if (key === 'thickness') {
+            snakeKey = 'thickness';
+        } else if (key === 'downtime') {
+            snakeKey = 'downtime';
+        } else if (key === 'machine') {
+            snakeKey = 'machine';
+        } else if (key === 'priority') {
+            snakeKey = 'priority';
+        } else if (key === 'setup') {
+            snakeKey = 'setup';
+        } else if (key === 'quantity') {
+            snakeKey = 'quantity';
+        } else if (key === 'status') {
+            snakeKey = 'status';
+        } else if (key === 'name') {
+            snakeKey = 'name';
+        } else {
+            // Default conversion
+            snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+        }
         result[snakeKey] = value;
     }
     return result;
