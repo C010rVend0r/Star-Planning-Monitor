@@ -2074,3 +2074,409 @@ body {
     background: var(--text-white);
     color: var(--accent);
 }
+
+/* Feed item styles */
+.feed-item-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+}
+
+.feed-item-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.feed-job-number {
+    font-weight: 700;
+    font-size: 13px;
+    color: #2c3e50;
+    background: #e9ecef;
+    padding: 0 8px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+.feed-job-name {
+    font-weight: 500;
+    font-size: 13px;
+    color: #2c3e50;
+    flex: 1;
+    min-width: 100px;
+}
+
+.feed-priority {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.feed-timeline-indicator {
+    font-size: 12px;
+}
+
+.feed-machine-badge {
+    font-size: 9px;
+    background-color: #e9ecef;
+    color: #495057;
+    padding: 1px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.feed-status-wrapper {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.feed-status {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.feed-estimated-date {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid;
+    white-space: nowrap;
+}
+
+.feed-pl-status-wrapper {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.feed-pl-status {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.feed-quantity,
+.feed-setup {
+    font-size: 10px;
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+/* Feed job container */
+.feed-job {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.feed-job:hover {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.feed-job:active {
+    transform: scale(0.98);
+}
+
+.feed-job.filter-hidden {
+    display: none !important;
+}
+
+.feed-job-selected {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb) !important;
+    border-left: 4px solid #1976d2 !important;
+    box-shadow: 0 2px 12px rgba(25, 118, 210, 0.2) !important;
+}
+
+.feed-job-dragging {
+    opacity: 0.4;
+    transform: scale(0.95);
+}
+
+.feed-job.job-already-on-timeline {
+    border-color: #dc3545;
+    background: #fff5f5;
+}
+
+.feed-job.job-already-on-timeline .feed-job-name {
+    color: #dc3545;
+}
+
+.feed-job .feed-priority {
+    animation: priorityPulse 2s ease-in-out infinite;
+}
+
+@keyframes priorityPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Priority color classes */
+.priority-high {
+    background-color: rgba(220, 53, 69, 0.15) !important;
+    color: #dc3545 !important;
+    border-color: rgba(220, 53, 69, 0.3) !important;
+}
+
+.priority-medium-high {
+    background-color: rgba(253, 126, 20, 0.15) !important;
+    color: #fd7e14 !important;
+    border-color: rgba(253, 126, 20, 0.3) !important;
+}
+
+.priority-medium {
+    background-color: rgba(255, 193, 7, 0.15) !important;
+    color: #ffc107 !important;
+    border-color: rgba(255, 193, 7, 0.3) !important;
+}
+
+.priority-low {
+    background-color: rgba(23, 162, 184, 0.15) !important;
+    color: #17a2b8 !important;
+    border-color: rgba(23, 162, 184, 0.3) !important;
+}
+
+.priority-lowest {
+    background-color: rgba(108, 117, 125, 0.15) !important;
+    color: #6c757d !important;
+    border-color: rgba(108, 117, 125, 0.3) !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .feed-item-header {
+        flex-wrap: wrap;
+    }
+    
+    .feed-job-name {
+        min-width: 60px;
+        font-size: 12px;
+    }
+    
+    .feed-job-number {
+        font-size: 11px;
+    }
+    
+    .feed-status,
+    .feed-pl-status {
+        font-size: 10px;
+        padding: 1px 6px;
+    }
+    
+    .feed-priority {
+        font-size: 9px;
+        padding: 1px 4px;
+    }
+}
+/* Add to your CSS file */
+
+/* Priority badge on timeline jobs */
+.job-priority-badge {
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    display: inline-block;
+    animation: priorityPulse 2s ease-in-out infinite;
+}
+
+/* Job highlight when clicked */
+.job-highlighted {
+    animation: jobHighlight 0.5s ease-in-out 3;
+    box-shadow: 0 0 20px rgba(25, 118, 210, 0.6) !important;
+    border: 2px solid #1976d2 !important;
+    z-index: 1000 !important;
+    transform: scale(1.05);
+}
+
+@keyframes jobHighlight {
+    0%, 100% { 
+        box-shadow: 0 0 20px rgba(25, 118, 210, 0.6);
+        transform: scale(1.05);
+    }
+    50% { 
+        box-shadow: 0 0 40px rgba(25, 118, 210, 0.9);
+        transform: scale(1.08);
+    }
+}
+
+/* Machine highlight */
+.machine-highlighted {
+    background: rgba(25, 118, 210, 0.05) !important;
+    border: 2px solid #1976d2 !important;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(25, 118, 210, 0.2);
+    transition: all 0.3s ease;
+}
+
+/* Priority pulse animation */
+@keyframes priorityPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Priority colors on timeline */
+.job .job-priority-badge.priority-critical {
+    background-color: rgba(220, 53, 69, 0.2) !important;
+    color: #dc3545 !important;
+    border-color: rgba(220, 53, 69, 0.4) !important;
+}
+
+.job .job-priority-badge.priority-high {
+    background-color: rgba(253, 126, 20, 0.2) !important;
+    color: #fd7e14 !important;
+    border-color: rgba(253, 126, 20, 0.4) !important;
+}
+
+.job .job-priority-badge.priority-medium {
+    background-color: rgba(255, 193, 7, 0.2) !important;
+    color: #ffc107 !important;
+    border-color: rgba(255, 193, 7, 0.4) !important;
+}
+
+.job .job-priority-badge.priority-low {
+    background-color: rgba(23, 162, 184, 0.2) !important;
+    color: #17a2b8 !important;
+    border-color: rgba(23, 162, 184, 0.4) !important;
+}
+
+.job .job-priority-badge.priority-lowest {
+    background-color: rgba(108, 117, 125, 0.15) !important;
+    color: #6c757d !important;
+    border-color: rgba(108, 117, 125, 0.3) !important;
+}
+
+/* Tooltip for priority */
+.job-priority-badge:hover {
+    transform: scale(1.1);
+    cursor: help;
+}
+
+/* Add a subtle border to show priority level on the job card */
+.job.priority-critical {
+    border-left: 4px solid #dc3545 !important;
+}
+
+.job.priority-high {
+    border-left: 4px solid #fd7e14 !important;
+}
+
+.job.priority-medium {
+    border-left: 4px solid #ffc107 !important;
+}
+
+.job.priority-low {
+    border-left: 4px solid #17a2b8 !important;
+}
+
+.job.priority-lowest {
+    border-left: 4px solid #6c757d !important;
+}
+/* Feed job styles for Planned jobs */
+.feed-job-planned {
+    border-left: 3px solid #28a745 !important;
+    background: #f8fff8 !important;
+}
+
+.feed-job-planned-on-timeline {
+    border-left: 3px solid #17a2b8 !important;
+    background: #f0f9ff !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+}
+
+.feed-job-planned-on-timeline:hover {
+    background: #e3f2fd !important;
+    transform: translateX(3px);
+    box-shadow: 0 2px 16px rgba(23, 162, 184, 0.25) !important;
+}
+
+.feed-job-planned-on-timeline:active {
+    transform: scale(0.98);
+}
+
+.feed-job-complete {
+    border-left: 3px solid #6c757d !important;
+    opacity: 0.8;
+    background: #f8f9fa !important;
+}
+
+.feed-job-complete .feed-job-name {
+    color: #6c757d !important;
+    text-decoration: line-through;
+}
+
+.feed-planned-badge {
+    animation: plannedPulse 3s ease-in-out infinite;
+}
+
+.feed-complete-badge {
+    font-size: 9px;
+    background: #6c757d20;
+    color: #6c757d;
+    border: 1px solid #6c757d40;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 4px;
+}
+
+@keyframes plannedPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.feed-click-hint {
+    animation: clickHintPulse 2s ease-in-out infinite;
+}
+
+@keyframes clickHintPulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; transform: scale(1.05); }
+}
+
+/* Job highlight animation */
+.job-highlighted {
+    animation: jobHighlight 0.5s ease-in-out 3;
+    box-shadow: 0 0 30px rgba(23, 162, 184, 0.7) !important;
+    border: 2px solid #17a2b8 !important;
+    z-index: 1000 !important;
+    transform: scale(1.05) !important;
+}
+
+@keyframes jobHighlight {
+    0%, 100% { 
+        box-shadow: 0 0 20px rgba(23, 162, 184, 0.6);
+        transform: scale(1.05);
+    }
+    50% { 
+        box-shadow: 0 0 40px rgba(23, 162, 184, 0.9);
+        transform: scale(1.08);
+    }
+}
+
+/* Machine highlight */
+.machine-highlighted {
+    background: rgba(23, 162, 184, 0.05) !important;
+    border: 2px solid #17a2b8 !important;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(23, 162, 184, 0.2);
+    transition: all 0.3s ease;
+}
