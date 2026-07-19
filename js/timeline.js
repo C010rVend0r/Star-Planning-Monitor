@@ -1,4 +1,4 @@
-// timeline.js - COMPLETE REWRITE
+// timeline.js - COMPLETE REWRITE WITH PROPER RULER MANAGEMENT
 // ============================================================
 // TIMELINE & MACHINE FUNCTIONS
 // ============================================================
@@ -52,134 +52,235 @@ let dragOverElement = null;
 let draggedElement = null;
 const nowIndicatorPositions = {};
 const timelineStateCache = {};
+let rulerGenerationTimeout = null;
+let isGeneratingRuler = false;
 
 // ============================================================
-// TIMELINE RULER
+// PRIORITY SORTING FUNCTION
+// ============================================================
+
+function sortTimelineJobsByPriority(timeline) {
+    if (!timeline) return;
+    
+    // Get all non-printed jobs
+    const activeJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+    if (activeJobs.length <= 1) return;
+    
+    // Sort by priority (lower number = higher priority)
+    activeJobs.sort((a, b) => {
+        const aId = a.getAttribute('data-job-id');
+        const bId = b.getAttribute('data-job-id');
+        
+        const aData = jobDatabase[aId];
+        const bData = jobDatabase[bId];
+        
+        // If priority is missing, use 999 (lowest priority)
+        const aPriority = aData?.priority !== undefined ? aData.priority : 999;
+        const bPriority = bData?.priority !== undefined ? bData.priority : 999;
+        
+        // Lower number = higher priority
+        if (aPriority !== bPriority) {
+            return aPriority - bPriority;
+        }
+        
+        // If same priority, sort by job number
+        const aJobNum = aData?.jobNumber || '';
+        const bJobNum = bData?.jobNumber || '';
+        return aJobNum.localeCompare(bJobNum);
+    });
+    
+    // Get printed jobs (keep them at the beginning/left side)
+    const printedJobs = Array.from(timeline.querySelectorAll('.job.job-printed'));
+    
+    // Clear timeline
+    while (timeline.firstChild) {
+        timeline.removeChild(timeline.firstChild);
+    }
+    
+    // Add printed jobs first (left side)
+    printedJobs.forEach(job => timeline.appendChild(job));
+    
+    // Add active jobs sorted by priority
+    activeJobs.forEach(job => timeline.appendChild(job));
+    
+    console.log(`✅ Sorted ${timeline.id}: ${activeJobs.length} jobs by priority`);
+}
+
+// ============================================================
+// TIMELINE RULER - FIXED: No debounce, direct generation
 // ============================================================
 
 function generateTimelineRuler(timeline) {
-    const container = timeline.closest('.timeline-container');
-    if (!container) return;
-    
-    // Remove existing ruler elements
-    const existingRuler = container.querySelector('.timeline-ruler');
-    if (existingRuler) existingRuler.remove();
-    const existingDateHeader = container.querySelector('.timeline-date-header');
-    if (existingDateHeader) existingDateHeader.remove();
-    
-    const jobs = timeline.querySelectorAll('.job');
-    if (jobs.length === 0) return;
-    
-    const totalWidth = Math.max(timeline.scrollWidth, timeline.offsetWidth, 800);
-    const containerRect = container.getBoundingClientRect();
-    const scrollLeft = container.scrollLeft || 0;
-    
-    // Get job positions
-    let jobPositions = [];
-    jobs.forEach(job => {
-        const jobId = job.getAttribute('data-job-id');
-        const scheduleData = jobSchedule[jobId];
-        if (scheduleData) {
-            const jobRect = job.getBoundingClientRect();
-            const leftPx = jobRect.left - containerRect.left + scrollLeft;
-            const rightPx = jobRect.right - containerRect.left + scrollLeft;
-            jobPositions.push({
-                id: jobId,
-                startTime: scheduleData.startTime,
-                endTime: scheduleData.endTime,
-                leftPx: leftPx,
-                rightPx: rightPx,
-                isPrinted: job.classList.contains('job-printed')
-            });
-        }
-    });
-    
-    if (jobPositions.length === 0) return;
-    
-    // Check if state has changed
-    const stateHash = jobPositions.map(p => 
-        `${p.id}|${p.leftPx.toFixed(2)}|${p.rightPx.toFixed(2)}|${p.isPrinted}`
-    ).join(';');
-    
-    const timelineId = timeline.id;
-    if (timelineStateCache[timelineId] === stateHash) {
+    // Prevent concurrent generation
+    if (isGeneratingRuler) {
         return;
     }
-    timelineStateCache[timelineId] = stateHash;
+    isGeneratingRuler = true;
     
-    // Date header
-    const dateHeader = document.createElement('div');
-    dateHeader.className = 'timeline-date-header';
-    const firstJobStart = jobPositions[0].startTime;
-    const lastJobEnd = jobPositions[jobPositions.length - 1].endTime;
-    const startDate = new Date(firstJobStart);
-    const endDate = new Date(lastJobEnd);
-    const today = new Date();
-    
-    dateHeader.innerHTML = `
-        <span class="date-range">
-            ${startDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} 
-            → ${endDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-        </span>
-        <span class="today-date">
-            Today: ${today.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-        </span>
-    `;
-    
-    // Ruler
-    const ruler = document.createElement('div');
-    ruler.className = 'timeline-ruler';
-    ruler.style.width = totalWidth + 'px';
-    
-    // Add ticks for each job
-    jobPositions.forEach((pos, index) => {
-        const startPercent = Math.max(0, Math.min(100, (pos.leftPx / totalWidth) * 100));
-        const endPercent = Math.max(0, Math.min(100, (pos.rightPx / totalWidth) * 100));
+    try {
+        const container = timeline.closest('.timeline-container');
+        if (!container) {
+            isGeneratingRuler = false;
+            return;
+        }
         
-        const startDateObj = new Date(pos.startTime);
-        const endDateObj = new Date(pos.endTime);
+        // Remove existing ruler elements
+        const existingRuler = container.querySelector('.timeline-ruler');
+        if (existingRuler) existingRuler.remove();
+        const existingDateHeader = container.querySelector('.timeline-date-header');
+        if (existingDateHeader) existingDateHeader.remove();
         
-        const startTimeStr = startDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const endTimeStr = endDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const startDateStr = startDateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
-        const endDateStr = endDateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const jobs = timeline.querySelectorAll('.job');
+        if (jobs.length === 0) {
+            isGeneratingRuler = false;
+            return;
+        }
         
-        const showStartDate = index === 0 || startDateObj.getDate() !== new Date(jobPositions[index - 1].startTime).getDate();
-        const showEndDate = index === jobPositions.length - 1 || endDateObj.getDate() !== new Date(jobPositions[index + 1].startTime).getDate();
+        // Get the total width of all jobs including gaps
+        let totalWidth = 0;
+        jobs.forEach(job => {
+            totalWidth += job.offsetWidth + 6; // 6px gap
+        });
+        totalWidth += 24; // Padding
         
-        // Start tick
-        const startTick = document.createElement('div');
-        startTick.className = 'ruler-tick start-tick';
-        startTick.style.left = startPercent + '%';
-        startTick.innerHTML = `
-            <span class="tick-time start-time">▶ ${startTimeStr}</span>
-            ${showStartDate ? `<span class="tick-date">${startDateStr}</span>` : ''}
+        // Ensure minimum width
+        totalWidth = Math.max(totalWidth, timeline.offsetWidth, 800);
+        
+        const containerRect = container.getBoundingClientRect();
+        const scrollLeft = container.scrollLeft || 0;
+        
+        // Get job positions relative to the timeline
+        let jobPositions = [];
+        
+        jobs.forEach(job => {
+            const jobId = job.getAttribute('data-job-id');
+            const scheduleData = jobSchedule[jobId];
+            if (scheduleData) {
+                const jobRect = job.getBoundingClientRect();
+                // Position relative to container
+                const leftPx = jobRect.left - containerRect.left + scrollLeft;
+                const rightPx = jobRect.right - containerRect.left + scrollLeft;
+                jobPositions.push({
+                    id: jobId,
+                    startTime: scheduleData.startTime,
+                    endTime: scheduleData.endTime,
+                    leftPx: leftPx,
+                    rightPx: rightPx,
+                    isPrinted: job.classList.contains('job-printed')
+                });
+            }
+        });
+        
+        if (jobPositions.length === 0) {
+            isGeneratingRuler = false;
+            return;
+        }
+        
+        // Check if state has changed
+        const stateHash = jobPositions.map(p => 
+            `${p.id}|${p.leftPx.toFixed(2)}|${p.rightPx.toFixed(2)}|${p.isPrinted}`
+        ).join(';');
+        
+        const timelineId = timeline.id;
+        if (timelineStateCache[timelineId] === stateHash) {
+            // State hasn't changed, but ensure ruler exists
+            const rulerCheck = container.querySelector('.timeline-ruler');
+            if (!rulerCheck) {
+                // Ruler was removed, need to regenerate
+                // Force regenerate by clearing cache
+                delete timelineStateCache[timelineId];
+                // But don't recurse - we'll generate below
+            } else {
+                isGeneratingRuler = false;
+                return;
+            }
+        }
+        timelineStateCache[timelineId] = stateHash;
+        
+        // Date header
+        const dateHeader = document.createElement('div');
+        dateHeader.className = 'timeline-date-header';
+        const firstJobStart = jobPositions[0].startTime;
+        const lastJobEnd = jobPositions[jobPositions.length - 1].endTime;
+        const startDate = new Date(firstJobStart);
+        const endDate = new Date(lastJobEnd);
+        const today = new Date();
+        
+        dateHeader.innerHTML = `
+            <span class="date-range">
+                ${startDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} 
+                → ${endDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+            <span class="today-date">
+                Today: ${today.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
         `;
-        ruler.appendChild(startTick);
         
-        // End tick
-        const endTick = document.createElement('div');
-        endTick.className = 'ruler-tick end-tick';
-        endTick.style.left = endPercent + '%';
-        endTick.innerHTML = `
-            <span class="tick-time end-time">■ ${endTimeStr}</span>
-            ${showEndDate ? `<span class="tick-date">${endDateStr}</span>` : ''}
-        `;
-        ruler.appendChild(endTick);
-    });
-    
-    // Boundary lines
-    for (let i = 1; i < jobPositions.length; i++) {
-        const pos = jobPositions[i];
-        const boundaryPercent = Math.max(0, Math.min(100, (pos.leftPx / totalWidth) * 100));
-        const boundaryLine = document.createElement('div');
-        boundaryLine.className = 'ruler-boundary-line';
-        boundaryLine.style.left = boundaryPercent + '%';
-        ruler.appendChild(boundaryLine);
+        // Ruler
+        const ruler = document.createElement('div');
+        ruler.className = 'timeline-ruler';
+        ruler.style.width = totalWidth + 'px';
+        
+        // Add ticks for each job
+        jobPositions.forEach((pos, index) => {
+            // Calculate percentages based on actual position
+            const startPercent = (pos.leftPx / totalWidth) * 100;
+            const endPercent = (pos.rightPx / totalWidth) * 100;
+            
+            const startDateObj = new Date(pos.startTime);
+            const endDateObj = new Date(pos.endTime);
+            
+            const startTimeStr = startDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const endTimeStr = endDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const startDateStr = startDateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            const endDateStr = endDateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            
+            const showStartDate = index === 0 || startDateObj.getDate() !== new Date(jobPositions[index - 1].startTime).getDate();
+            const showEndDate = index === jobPositions.length - 1 || endDateObj.getDate() !== new Date(jobPositions[index + 1].startTime).getDate();
+            
+            // Start tick
+            const startTick = document.createElement('div');
+            startTick.className = 'ruler-tick start-tick';
+            startTick.style.left = Math.max(0, Math.min(100, startPercent)) + '%';
+            startTick.innerHTML = `
+                <span class="tick-time start-time">▶ ${startTimeStr}</span>
+                ${showStartDate ? `<span class="tick-date">${startDateStr}</span>` : ''}
+            `;
+            ruler.appendChild(startTick);
+            
+            // End tick
+            const endTick = document.createElement('div');
+            endTick.className = 'ruler-tick end-tick';
+            endTick.style.left = Math.max(0, Math.min(100, endPercent)) + '%';
+            endTick.innerHTML = `
+                <span class="tick-time end-time">■ ${endTimeStr}</span>
+                ${showEndDate ? `<span class="tick-date">${endDateStr}</span>` : ''}
+            `;
+            ruler.appendChild(endTick);
+            
+            // Boundary line between jobs (not for last job)
+            if (index < jobPositions.length - 1) {
+                const nextPos = jobPositions[index + 1];
+                const boundaryPos = (pos.rightPx + nextPos.leftPx) / 2;
+                const boundaryPercent = (boundaryPos / totalWidth) * 100;
+                const boundaryLine = document.createElement('div');
+                boundaryLine.className = 'ruler-boundary-line';
+                boundaryLine.style.left = Math.max(0, Math.min(100, boundaryPercent)) + '%';
+                ruler.appendChild(boundaryLine);
+            }
+        });
+        
+        container.prepend(ruler);
+        container.prepend(dateHeader);
+        
+        // Update now indicator after ruler is generated
+        updateNowIndicatorPosition(timeline);
+        
+    } catch (error) {
+        console.error('Error generating ruler:', error);
+    } finally {
+        isGeneratingRuler = false;
     }
-    
-    container.prepend(ruler);
-    container.prepend(dateHeader);
 }
 
 // ============================================================
@@ -195,7 +296,12 @@ function updateNowIndicatorPosition(timeline) {
     if (!container) return;
     
     let ruler = container.querySelector('.timeline-ruler');
-    if (!ruler) return;
+    if (!ruler) {
+        // Ruler doesn't exist, generate it first
+        generateTimelineRuler(timeline);
+        ruler = container.querySelector('.timeline-ruler');
+        if (!ruler) return;
+    }
     
     const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
     
@@ -434,21 +540,9 @@ function scaleTimeline(timelineId) {
         }
     });
     
-    const jobDurations = [];
-    let minDuration = Infinity;
-    let maxDuration = 0;
-    
-    activeJobs.forEach(job => {
-        const jobId = job.getAttribute('data-job-id');
-        const duration = calculateJobDuration(jobDatabase[jobId], jobId);
-        jobDurations.push({ job, duration, jobId });
-        if (duration > maxDuration) maxDuration = duration;
-        if (duration < minDuration) minDuration = duration;
-    });
-    
     if (activeJobs.length === 0) {
         printedJobs.forEach(job => {
-            let width = 100 * currentZoomLevel;
+            let width = 120 * currentZoomLevel;
             width = Math.max(80, Math.min(250, width));
             applyJobStyle(job, width);
         });
@@ -456,63 +550,74 @@ function scaleTimeline(timelineId) {
         return;
     }
     
+    // Calculate durations for all active jobs
+    const jobDurations = [];
+    let totalDuration = 0;
+    
+    activeJobs.forEach(job => {
+        const jobId = job.getAttribute('data-job-id');
+        const duration = calculateJobDuration(jobDatabase[jobId], jobId);
+        jobDurations.push({ job, duration, jobId });
+        totalDuration += duration;
+    });
+    
+    // Use a consistent scaling approach
     const MIN_JOB_WIDTH = 80;
-    const MAX_JOB_WIDTH = 600;
-    const MIN_DURATION_FOR_SCALING = 1;
+    const MAX_JOB_WIDTH = 500;
+    const CONTAINER_PADDING = 40;
     
-    const effectiveMinDuration = Math.max(minDuration, MIN_DURATION_FOR_SCALING);
-    let pixelsPerMinute = MIN_JOB_WIDTH / effectiveMinDuration;
-    pixelsPerMinute = pixelsPerMinute * currentZoomLevel;
-    pixelsPerMinute = Math.max(0.5, Math.min(20, pixelsPerMinute));
+    // Get the container width
+    const container = timeline.closest('.timeline-container');
+    const containerWidth = container ? container.clientWidth : 1200;
     
+    // Calculate pixels per minute based on total duration and container width
+    let pixelsPerMinute;
+    
+    if (totalDuration > 0) {
+        // Target: fit all jobs in the container with some padding
+        const availableWidth = Math.max(containerWidth - CONTAINER_PADDING, 400);
+        const targetWidth = Math.max(availableWidth, activeJobs.length * MIN_JOB_WIDTH);
+        pixelsPerMinute = targetWidth / totalDuration;
+        
+        // Apply zoom
+        pixelsPerMinute = pixelsPerMinute * currentZoomLevel;
+        
+        // Clamp to reasonable values
+        pixelsPerMinute = Math.max(0.5, Math.min(15, pixelsPerMinute));
+    } else {
+        pixelsPerMinute = 2 * currentZoomLevel;
+    }
+    
+    // Apply widths to all active jobs
     let widthsChanged = false;
     jobDurations.forEach(({ job, duration }) => {
         let width = duration * pixelsPerMinute;
         width = Math.max(MIN_JOB_WIDTH * 0.8, Math.min(MAX_JOB_WIDTH * 1.2, width));
+        
         const currentWidth = parseFloat(job.style.width) || 0;
-        if (Math.abs(currentWidth - width) > 5) {
+        if (Math.abs(currentWidth - width) > 3) {
             widthsChanged = true;
         }
         applyJobStyle(job, width);
     });
     
+    // Printed jobs get a fixed width
     printedJobs.forEach(job => {
-        let width = 100 * currentZoomLevel;
+        let width = 120 * currentZoomLevel;
         width = Math.max(80, Math.min(250, width));
         applyJobStyle(job, width);
     });
     
-    if (widthsChanged) {
+    // Only regenerate ruler if widths changed significantly or ruler is missing
+    const containerExists = container && container.querySelector('.timeline-ruler');
+    if (widthsChanged || !containerExists) {
         delete timelineStateCache[timelineId];
-    }
-    
-    let hasSchedule = false;
-    let firstStartTime = Infinity;
-    let lastEndTime = 0;
-    
-    activeJobs.forEach(job => {
-        const jobId = job.getAttribute('data-job-id');
-        if (jobSchedule[jobId]) {
-            hasSchedule = true;
-            if (jobSchedule[jobId].startTime < firstStartTime) {
-                firstStartTime = jobSchedule[jobId].startTime;
-            }
-            if (jobSchedule[jobId].endTime > lastEndTime) {
-                lastEndTime = jobSchedule[jobId].endTime;
-            }
-        }
-    });
-    
-    if (hasSchedule && firstStartTime !== Infinity && lastEndTime > 0) {
-        const container = timeline.closest('.timeline-container');
+        
         if (container) {
-            const existingRuler = container.querySelector('.timeline-ruler');
-            if (!existingRuler || widthsChanged) {
-                if (existingRuler) existingRuler.remove();
-                const existingHeader = container.querySelector('.timeline-date-header');
-                if (existingHeader) existingHeader.remove();
-                generateTimelineRuler(timeline);
-            }
+            // Remove old ruler elements
+            container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+            // Generate new ruler
+            generateTimelineRuler(timeline);
         }
     }
 }
@@ -524,14 +629,15 @@ function applyJobStyle(job, jobWidth) {
     const maxWidth = 600;
     jobWidth = Math.max(minWidth, Math.min(maxWidth, jobWidth));
     
-    job.style.width = jobWidth + 'px';
-    job.style.flexShrink = '0';
-    job.style.minWidth = minWidth + 'px';
-    job.style.maxWidth = maxWidth + 'px';
+    job.style.setProperty('width', jobWidth + 'px', 'important');
+    job.style.setProperty('flex-shrink', '0', 'important');
+    job.style.setProperty('min-width', minWidth + 'px', 'important');
+    job.style.setProperty('max-width', maxWidth + 'px', 'important');
     
-    const fontSize = Math.max(9, Math.min(14, 11 * currentZoomLevel));
-    const nameFontSize = Math.max(9, Math.min(13, 10 * currentZoomLevel));
-    const badgeFontSize = Math.max(11, Math.min(16, 13 * currentZoomLevel));
+    // Scale font sizes based on job width
+    const fontSize = Math.max(9, Math.min(14, 11 * (jobWidth / 200)));
+    const nameFontSize = Math.max(9, Math.min(13, 10 * (jobWidth / 200)));
+    const badgeFontSize = Math.max(11, Math.min(16, 13 * (jobWidth / 200)));
     
     const jobName = job.querySelector('.job-name');
     if (jobName) {
@@ -555,58 +661,40 @@ function applyJobStyle(job, jobWidth) {
     const jobTime = job.querySelector('.job-time');
     if (jobTime) jobTime.style.fontSize = (fontSize * 0.75) + 'px';
     
-    const padding = Math.max(6, Math.min(12, 8 * currentZoomLevel));
+    const padding = Math.max(4, Math.min(12, 8 * (jobWidth / 200)));
     job.style.padding = padding + 'px ' + (padding * 1.2) + 'px';
 }
 
 // ============================================================
-// TIMELINE SCHEDULING - PRESERVES EXISTING SCHEDULES
+// TIMELINE SCHEDULING
 // ============================================================
 
 function rescheduleTimelineJobs(timelineId, preserveExisting = true) {
     const timeline = document.getElementById(timelineId);
     if (!timeline) return;
     
-    const printedJobs = timeline.querySelectorAll('.job.job-printed');
-    const activeJobs = timeline.querySelectorAll('.job:not(.job-printed)');
+    if (timeline._rescheduling) {
+        return;
+    }
+    timeline._rescheduling = true;
     
-    if (activeJobs.length === 0) return;
-    
-    let startTime = null;
-    let startIndex = 0;
-    
-    if (preserveExisting) {
-        const activeJobsArray = Array.from(activeJobs);
+    try {
+        const activeJobsArray = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+        const printedJobs = timeline.querySelectorAll('.job.job-printed');
         
-        // Find the first job without a schedule or with a broken schedule
-        for (let i = 0; i < activeJobsArray.length; i++) {
-            const job = activeJobsArray[i];
-            const jobId = job.getAttribute('data-job-id');
-            if (!jobSchedule[jobId] || jobSchedule[jobId].startTime === undefined) {
-                startIndex = i;
-                if (i > 0) {
-                    const prevJob = activeJobsArray[i - 1];
-                    const prevJobId = prevJob.getAttribute('data-job-id');
-                    if (jobSchedule[prevJobId]) {
-                        startTime = jobSchedule[prevJobId].endTime;
-                    }
-                }
-                break;
-            }
+        if (activeJobsArray.length === 0) {
+            timeline._rescheduling = false;
+            return;
         }
         
-        // If all jobs have schedules, verify consistency
-        if (startTime === null) {
-            let consistent = true;
-            let expectedTime = null;
-            
+        let startTime = null;
+        let startIndex = 0;
+        
+        if (preserveExisting) {
             for (let i = 0; i < activeJobsArray.length; i++) {
                 const job = activeJobsArray[i];
                 const jobId = job.getAttribute('data-job-id');
-                const schedule = jobSchedule[jobId];
-                
-                if (!schedule) {
-                    consistent = false;
+                if (!jobSchedule[jobId] || jobSchedule[jobId].startTime === undefined) {
                     startIndex = i;
                     if (i > 0) {
                         const prevJob = activeJobsArray[i - 1];
@@ -617,70 +705,100 @@ function rescheduleTimelineJobs(timelineId, preserveExisting = true) {
                     }
                     break;
                 }
-                
-                if (expectedTime === null) {
-                    expectedTime = schedule.startTime;
-                } else if (Math.abs(schedule.startTime - expectedTime) > 1000) {
-                    consistent = false;
-                    startIndex = i;
-                    startTime = expectedTime;
-                    break;
-                }
-                
-                const duration = calculateJobDuration(jobDatabase[jobId], jobId) * 60000;
-                expectedTime += duration;
             }
             
-            if (consistent) {
-                return;
+            if (startTime === null) {
+                let consistent = true;
+                let expectedTime = null;
+                
+                for (let i = 0; i < activeJobsArray.length; i++) {
+                    const job = activeJobsArray[i];
+                    const jobId = job.getAttribute('data-job-id');
+                    const schedule = jobSchedule[jobId];
+                    
+                    if (!schedule) {
+                        consistent = false;
+                        startIndex = i;
+                        if (i > 0) {
+                            const prevJob = activeJobsArray[i - 1];
+                            const prevJobId = prevJob.getAttribute('data-job-id');
+                            if (jobSchedule[prevJobId]) {
+                                startTime = jobSchedule[prevJobId].endTime;
+                            }
+                        }
+                        break;
+                    }
+                    
+                    if (expectedTime === null) {
+                        expectedTime = schedule.startTime;
+                    } else if (Math.abs(schedule.startTime - expectedTime) > 1000) {
+                        consistent = false;
+                        startIndex = i;
+                        startTime = expectedTime;
+                        break;
+                    }
+                    
+                    const duration = calculateJobDuration(jobDatabase[jobId], jobId) * 60000;
+                    expectedTime += duration;
+                }
+                
+                if (consistent) {
+                    timeline._rescheduling = false;
+                    return;
+                }
             }
         }
-    }
-    
-    if (startTime === null) {
-        if (printedJobs.length > 0) {
-            const lastPrinted = printedJobs[printedJobs.length - 1];
-            const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-            if (jobSchedule[lastPrintedId]) {
-                startTime = jobSchedule[lastPrintedId].endTime;
+        
+        if (startTime === null) {
+            if (printedJobs.length > 0) {
+                const lastPrinted = printedJobs[printedJobs.length - 1];
+                const lastPrintedId = lastPrinted.getAttribute('data-job-id');
+                if (jobSchedule[lastPrintedId]) {
+                    startTime = jobSchedule[lastPrintedId].endTime;
+                } else {
+                    startTime = new Date().getTime();
+                }
             } else {
                 startTime = new Date().getTime();
             }
-        } else {
-            startTime = new Date().getTime();
+            startIndex = 0;
         }
-        startIndex = 0;
-    }
-    
-    const activeJobsArray = Array.from(activeJobs);
-    let currentTime = startTime;
-    
-    for (let i = startIndex; i < activeJobsArray.length; i++) {
-        const job = activeJobsArray[i];
-        const jobId = job.getAttribute('data-job-id');
-        const jobData = jobDatabase[jobId];
-        if (!jobData) continue;
         
-        const duration = calculateJobDuration(jobData, jobId) * 60000;
+        let currentTime = startTime;
         
-        let jobStartTime = currentTime;
-        if (preserveExisting && jobSchedule[jobId] && i === startIndex) {
-            const originalStart = jobSchedule[jobId].startTime;
-            if (originalStart >= currentTime) {
-                jobStartTime = originalStart;
-                currentTime = jobStartTime;
+        for (let i = startIndex; i < activeJobsArray.length; i++) {
+            const job = activeJobsArray[i];
+            const jobId = job.getAttribute('data-job-id');
+            const jobData = jobDatabase[jobId];
+            if (!jobData) continue;
+            
+            const duration = calculateJobDuration(jobData, jobId) * 60000;
+            
+            let jobStartTime = currentTime;
+            if (preserveExisting && jobSchedule[jobId] && i === startIndex) {
+                const originalStart = jobSchedule[jobId].startTime;
+                if (originalStart >= currentTime) {
+                    jobStartTime = originalStart;
+                    currentTime = jobStartTime;
+                }
             }
+            
+            jobSchedule[jobId] = {
+                startTime: jobStartTime,
+                endTime: jobStartTime + duration,
+                timelineId: timelineId,
+                isPrinted: false
+            };
+            
+            currentTime = jobStartTime + duration;
         }
         
-        jobSchedule[jobId] = {
-            startTime: jobStartTime,
-            endTime: jobStartTime + duration,
-            timelineId: timelineId,
-            isPrinted: false
-        };
-        
-        currentTime = jobStartTime + duration;
+    } finally {
+        timeline._rescheduling = false;
     }
+    
+    // Scale and regenerate ruler
+    scaleTimeline(timelineId);
 }
 
 function calculateJobDuration(jobData, jobId = null) {
@@ -747,6 +865,25 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
         }
     }
     
+    // Sort without rescheduling
+    const activeJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+    if (activeJobs.length > 1) {
+        activeJobs.sort((a, b) => {
+            const aId = a.getAttribute('data-job-id');
+            const bId = b.getAttribute('data-job-id');
+            const aPriority = jobDatabase[aId]?.priority !== undefined ? jobDatabase[aId].priority : 999;
+            const bPriority = jobDatabase[bId]?.priority !== undefined ? jobDatabase[bId].priority : 999;
+            return aPriority - bPriority;
+        });
+        
+        const printed = Array.from(timeline.querySelectorAll('.job.job-printed'));
+        while (timeline.firstChild) {
+            timeline.removeChild(timeline.firstChild);
+        }
+        printed.forEach(job => timeline.appendChild(job));
+        activeJobs.forEach(job => timeline.appendChild(job));
+    }
+    
     delete timelineStateCache[timelineId];
     scaleTimeline(timelineId);
     updateMachineStatus(timeline.closest('.machine'));
@@ -778,52 +915,47 @@ function handleFeedToTimeline(jobId, timeline, e) {
         plDatabase[jobId].machine = machineNumber;
     }
     
-    const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
-    let newStartTime;
-    let insertBeforeElement = null;
+    const jobData = jobDatabase[jobId];
+    const newPriority = jobData?.priority !== undefined ? jobData.priority : 999;
     
-    if (jobs.length > 0) {
-        const afterElement = getDragAfterElement(timeline, e.clientX);
-        if (afterElement) {
-            if (afterElement.parentElement === timeline) {
-                insertBeforeElement = afterElement;
-            } else {
-                const jobIdToInsertBefore = afterElement.getAttribute('data-job-id');
-                if (jobIdToInsertBefore) {
-                    const foundElement = timeline.querySelector(`.job[data-job-id="${jobIdToInsertBefore}"]`);
-                    if (foundElement && foundElement.parentElement === timeline) {
-                        insertBeforeElement = foundElement;
-                    }
-                }
-            }
+    const activeJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+    let insertBeforeElement = null;
+    let newStartTime;
+    
+    if (activeJobs.length > 0) {
+        let insertIndex = activeJobs.length;
+        for (let i = 0; i < activeJobs.length; i++) {
+            const existingJob = activeJobs[i];
+            const existingId = existingJob.getAttribute('data-job-id');
+            const existingPriority = jobDatabase[existingId]?.priority !== undefined ? 
+                jobDatabase[existingId].priority : 999;
             
-            if (insertBeforeElement) {
-                const insertIndex = Array.from(timeline.children).indexOf(insertBeforeElement);
-                const prevJob = insertIndex > 0 ? timeline.children[insertIndex - 1] : null;
-                if (prevJob && prevJob.classList.contains('job') && !prevJob.classList.contains('job-printed')) {
-                    const prevJobId = prevJob.getAttribute('data-job-id');
-                    newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
-                } else {
-                    const firstPrinted = timeline.querySelector('.job.job-printed');
-                    if (firstPrinted) {
-                        const printedJobs = timeline.querySelectorAll('.job.job-printed');
-                        const lastPrinted = printedJobs[printedJobs.length - 1];
-                        if (lastPrinted) {
-                            const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-                            newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
-                        } else {
-                            newStartTime = new Date().getTime();
-                        }
-                    } else {
-                        newStartTime = new Date().getTime();
-                    }
-                }
+            if (newPriority < existingPriority) {
+                insertBeforeElement = existingJob;
+                insertIndex = i;
+                break;
+            }
+        }
+        
+        if (insertBeforeElement) {
+            const insertIndex = Array.from(timeline.children).indexOf(insertBeforeElement);
+            const prevJob = insertIndex > 0 ? timeline.children[insertIndex - 1] : null;
+            if (prevJob && prevJob.classList.contains('job') && !prevJob.classList.contains('job-printed')) {
+                const prevJobId = prevJob.getAttribute('data-job-id');
+                newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
             } else {
-                const lastJobId = jobs[jobs.length - 1].getAttribute('data-job-id');
-                newStartTime = jobSchedule[lastJobId]?.endTime || new Date().getTime();
+                const printedJobs = timeline.querySelectorAll('.job.job-printed');
+                if (printedJobs.length > 0) {
+                    const lastPrinted = printedJobs[printedJobs.length - 1];
+                    const lastPrintedId = lastPrinted.getAttribute('data-job-id');
+                    newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
+                } else {
+                    newStartTime = new Date().getTime();
+                }
             }
         } else {
-            const lastJobId = jobs[jobs.length - 1].getAttribute('data-job-id');
+            const lastJob = activeJobs[activeJobs.length - 1];
+            const lastJobId = lastJob.getAttribute('data-job-id');
             newStartTime = jobSchedule[lastJobId]?.endTime || new Date().getTime();
         }
     } else {
@@ -845,7 +977,7 @@ function handleFeedToTimeline(jobId, timeline, e) {
     applySmartZoom();
     
     const jobName = jobDatabase[jobId]?.name || jobId;
-    showNotification(`✅ "${jobName}" added to Machine ${machineNumber} (PL: Planned)`, 'success');
+    showNotification(`✅ "${jobName}" added to Machine ${machineNumber} (Priority: ${newPriority})`, 'success');
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
 }
 
@@ -888,6 +1020,8 @@ function handleJobReorder(jobId, targetTimeline, e) {
         }
     }
     
+    sortTimelineJobsByPriority(targetTimeline);
+    
     if (jobScheduleData) {
         jobScheduleData.timelineId = targetTimeline.id;
         jobSchedule[jobId] = jobScheduleData;
@@ -915,12 +1049,19 @@ function returnJobToFeed(jobElement) {
     const jobData = jobDatabase[jobId];
     if (!jobData) return;
     
+    if (jobElement.classList.contains('job-printed')) {
+        showNotification(`⚠️ Cannot return completed job "${jobData.name || jobId}" to feed`, 'warning');
+        return;
+    }
+    
     delete jobSpeeds[jobId];
     updateJobPLStatus(jobId, 'Unplanned');
     
     jobData.machine = '';
+    jobData.isComplete = false;
     if (plDatabase[jobId]) {
         plDatabase[jobId].machine = '';
+        plDatabase[jobId].isComplete = false;
     }
     
     const feedJob = createFeedJobElement(jobId, jobData);
@@ -934,7 +1075,6 @@ function returnJobToFeed(jobElement) {
         delete jobSchedule[jobId];
         delete timelineStateCache[timelineId];
         
-        // Reschedule remaining jobs
         rescheduleTimelineJobs(timelineId, true);
         scaleTimeline(timelineId);
         updateMachineStatus(timeline.closest('.machine'));
@@ -954,9 +1094,37 @@ function refreshAllTimelines() {
             container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
         }
         delete timelineStateCache[timeline.id];
+        
         sortPrintedJobs(timeline);
+        
+        const activeJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+        if (activeJobs.length > 1) {
+            activeJobs.sort((a, b) => {
+                const aId = a.getAttribute('data-job-id');
+                const bId = b.getAttribute('data-job-id');
+                const aPriority = jobDatabase[aId]?.priority !== undefined ? jobDatabase[aId].priority : 999;
+                const bPriority = jobDatabase[bId]?.priority !== undefined ? jobDatabase[bId].priority : 999;
+                return aPriority - bPriority;
+            });
+            
+            const printed = Array.from(timeline.querySelectorAll('.job.job-printed'));
+            while (timeline.firstChild) {
+                timeline.removeChild(timeline.firstChild);
+            }
+            printed.forEach(job => timeline.appendChild(job));
+            activeJobs.forEach(job => timeline.appendChild(job));
+        }
+        
+        rescheduleTimelineJobs(timeline.id, true);
         scaleTimeline(timeline.id);
     });
+    
+    updateAllNowIndicators();
+    updateAllJobColors();
+    updateAllJobTimes();
+    updateAllMachineStatuses();
+    
+    console.log('✅ All timelines refreshed and rulers regenerated');
 }
 
 function sortPrintedJobs(timeline) {
@@ -1232,6 +1400,7 @@ function setupDragAndDrop() {
                 dragOverElement = null;
                 
                 sortPrintedJobs(this);
+                sortTimelineJobsByPriority(this);
                 updateAllJobColors();
                 updateStatistics();
                 applySmartZoom();
@@ -1341,47 +1510,93 @@ function updateAllJobColors() {
 }
 
 // ============================================================
-// COMPLETED JOBS HANDLING
+// COMPLETED JOBS HANDLING - KEEP ONLY LAST 3 PRINTED
 // ============================================================
 
 function updateCompletedJobs() {
     const now = new Date().getTime();
     let hasChanges = false;
+    let completedJobIds = [];
     
     document.querySelectorAll('.timeline').forEach(timeline => {
         const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+        const printedJobs = timeline.querySelectorAll('.job.job-printed');
         
         jobs.forEach(job => {
             const jobId = job.getAttribute('data-job-id');
             if (jobSchedule[jobId] && jobSchedule[jobId].endTime <= now) {
                 job.classList.add('job-printed');
                 jobSchedule[jobId].isPrinted = true;
-                jobDatabase[jobId].status = 'Complete';
-                jobDatabase[jobId].planningStatus = 'Complete';
+                
+                if (jobDatabase[jobId]) {
+                    jobDatabase[jobId].status = 'Complete';
+                    jobDatabase[jobId].planningStatus = 'Complete';
+                    jobDatabase[jobId].isComplete = true;
+                }
+                
+                if (plDatabase[jobId]) {
+                    plDatabase[jobId].planningStatus = 'Complete';
+                    plDatabase[jobId].isComplete = true;
+                    plDatabase[jobId].statusDate = new Date().toISOString();
+                }
+                
                 job.setAttribute('draggable', 'false');
                 
                 const statusBadge = job.querySelector('.job-status-badge');
                 if (statusBadge) {
-                    statusBadge.textContent = 'Complete';
+                    statusBadge.textContent = 'AW: Complete since: ' + formatDateOnly(new Date());
                     statusBadge.style.color = '#95a5a6';
                 }
+                
+                const priorityBadge = job.querySelector('.job-priority-badge');
+                if (priorityBadge) priorityBadge.remove();
+                
+                const plannedBadge = job.querySelector('.job-planned-badge');
+                if (plannedBadge) plannedBadge.remove();
+                
+                const jobName = job.querySelector('.job-name');
+                if (jobName && !jobName.querySelector('.job-complete-badge')) {
+                    const completeBadge = document.createElement('span');
+                    completeBadge.className = 'job-complete-badge';
+                    completeBadge.style.cssText = 'background-color:#6c757d20; color:#6c757d; border:1px solid #6c757d40; font-size:8px; font-weight:700; padding:1px 5px; border-radius:3px; margin-left:4px; white-space:nowrap; display:inline-block;';
+                    completeBadge.textContent = '✅ Complete';
+                    jobName.appendChild(completeBadge);
+                }
+                
+                const inputs = job.querySelectorAll('.job-editable-fields input');
+                inputs.forEach(input => {
+                    input.disabled = true;
+                    input.style.backgroundColor = '#e9ecef';
+                    input.style.cursor = 'not-allowed';
+                    input.style.opacity = '0.7';
+                });
+                
+                if (typeof updateFeedItemForCompletion === 'function') {
+                    updateFeedItemForCompletion(jobId);
+                }
+                
+                completedJobIds.push(jobId);
                 hasChanges = true;
+                console.log(`✅ Job ${jobId} completed and marked as Complete`);
             }
         });
         
-        const printedJobs = timeline.querySelectorAll('.job.job-printed');
-        if (printedJobs.length > 5) {
-            const toRemove = Array.from(printedJobs).slice(5);
+        const allPrintedJobs = timeline.querySelectorAll('.job.job-printed');
+        if (allPrintedJobs.length > 3) {
+            const toRemove = Array.from(allPrintedJobs).slice(0, allPrintedJobs.length - 3);
             toRemove.forEach(job => {
                 const jobId = job.getAttribute('data-job-id');
                 delete jobSchedule[jobId];
                 job.remove();
                 hasChanges = true;
+                console.log(`🗑️ Removed old printed job ${jobId} from ${timeline.id}`);
             });
+            console.log(`🗑️ Removed ${toRemove.length} old printed jobs from ${timeline.id}, kept 3 most recent`);
         }
         
+        sortPrintedJobs(timeline);
+        
         if (hasChanges) {
-            sortPrintedJobs(timeline);
             delete timelineStateCache[timeline.id];
             const container = timeline.closest('.timeline-container');
             if (container) {
@@ -1393,9 +1608,144 @@ function updateCompletedJobs() {
     });
     
     if (hasChanges) {
+        if (typeof scheduleAutoSave === 'function') {
+            scheduleAutoSave();
+        }
+        
         updateStatistics();
         updateAllNowIndicators();
+        applySmartZoom();
+        updateFilterCounts();
+        updateFilterBadge();
+        updateAllJobColors();
+        
+        if (completedJobIds.length > 0) {
+            const jobNames = completedJobIds.map(id => {
+                const jobData = jobDatabase[id];
+                return jobData ? jobData.name || id : id;
+            });
+            
+            if (completedJobIds.length === 1) {
+                showNotification(`✅ "${jobNames[0]}" completed!`, 'success');
+            } else {
+                showNotification(`✅ ${completedJobIds.length} jobs completed!`, 'success');
+            }
+        }
+        
+        console.log('✅ Completed jobs updated and saved');
     }
+}
+
+// ============================================================
+// SHOW JOB ON TIMELINE
+// ============================================================
+
+function showJobOnTimeline(jobId) {
+    const jobElement = document.querySelector(`.job[data-job-id="${jobId}"]`);
+    if (!jobElement) {
+        showNotification(`⚠️ Job "${jobId}" is not on any timeline`, 'warning');
+        return;
+    }
+    
+    const timeline = jobElement.closest('.timeline');
+    if (!timeline) {
+        showNotification(`⚠️ Job not found on timeline`, 'warning');
+        return;
+    }
+    
+    const machine = timeline.closest('.machine');
+    if (!machine) {
+        showNotification(`⚠️ Machine not found`, 'warning');
+        return;
+    }
+    
+    const machineId = machine.getAttribute('data-machine') || timeline.id.replace('timeline-', '');
+    
+    const machinesContainer = document.getElementById('machines-scroll-container');
+    if (!machinesContainer) {
+        showNotification(`⚠️ Machines container not found`, 'warning');
+        return;
+    }
+    
+    const machineElement = machinesContainer.querySelector(`.machine[data-machine="${machineId}"]`);
+    if (!machineElement) {
+        const altMachine = machinesContainer.querySelector(`#${timeline.id}`)?.closest('.machine');
+        if (!altMachine) {
+            showNotification(`⚠️ Machine ${machineId} not found`, 'warning');
+            return;
+        }
+        scrollToMachine(altMachine, jobElement);
+        return;
+    }
+    
+    scrollToMachine(machineElement, jobElement);
+}
+
+function scrollToMachine(machineElement, jobElement) {
+    const machinesContainer = document.getElementById('machines-scroll-container');
+    if (!machinesContainer) return;
+    
+    const timelineContainer = machineElement.querySelector('.timeline-container');
+    if (!timelineContainer) {
+        const scrollTarget = machineElement.offsetLeft - 20;
+        machinesContainer.scrollTo({
+            left: scrollTarget,
+            behavior: 'smooth'
+        });
+        highlightJobAndMachine(jobElement, machineElement);
+        return;
+    }
+    
+    const jobRect = jobElement.getBoundingClientRect();
+    const containerRect = timelineContainer.getBoundingClientRect();
+    const machineScrollTarget = machineElement.offsetLeft - 20;
+    
+    machinesContainer.scrollTo({
+        left: machineScrollTarget,
+        behavior: 'smooth'
+    });
+    
+    setTimeout(() => {
+        const updatedJobRect = jobElement.getBoundingClientRect();
+        const updatedContainerRect = timelineContainer.getBoundingClientRect();
+        
+        const jobCenter = updatedJobRect.left + (updatedJobRect.width / 2);
+        const containerCenter = updatedContainerRect.left + (updatedContainerRect.width / 2);
+        const scrollOffset = jobCenter - containerCenter;
+        
+        const currentScroll = timelineContainer.scrollLeft;
+        const newScroll = currentScroll + scrollOffset;
+        
+        timelineContainer.scrollTo({
+            left: newScroll - (updatedJobRect.width / 2),
+            behavior: 'smooth'
+        });
+    }, 350);
+    
+    setTimeout(() => {
+        highlightJobAndMachine(jobElement, machineElement);
+    }, 700);
+}
+
+function highlightJobAndMachine(jobElement, machineElement) {
+    jobElement.classList.add('job-highlighted');
+    
+    if (window.jobHighlightTimeout) {
+        clearTimeout(window.jobHighlightTimeout);
+    }
+    window.jobHighlightTimeout = setTimeout(() => {
+        jobElement.classList.remove('job-highlighted');
+    }, 5000);
+    
+    machineElement.classList.add('machine-highlighted');
+    setTimeout(() => {
+        machineElement.classList.remove('machine-highlighted');
+    }, 5000);
+    
+    const jobName = jobDatabase[jobElement.getAttribute('data-job-id')]?.name || 'Job';
+    const machineId = machineElement.getAttribute('data-machine') || 'Unknown';
+    const priority = jobDatabase[jobElement.getAttribute('data-job-id')]?.priority || 'N/A';
+    showNotification(`🔍 "${jobName}" on Machine ${machineId} (Priority: ${priority})`, 'info');
 }
 
 // ============================================================
@@ -1458,18 +1808,50 @@ function smartZoomOut() {
 
 function smartResetZoom() {
     currentZoomLevel = 1.0;
-    applySmartZoom();
-    updateZoomDisplay();
-    showZoomIndicator('Reset Zoom');
-}
-
-function applySmartZoom() {
+    
     document.querySelectorAll('.timeline').forEach(timeline => {
+        const container = timeline.closest('.timeline-container');
+        if (container) {
+            container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+        }
         delete timelineStateCache[timeline.id];
+        sortTimelineJobsByPriority(timeline);
         scaleTimeline(timeline.id);
     });
+    
+    updateZoomDisplay();
     updateAllNowIndicators();
+    showZoomIndicator('Reset Zoom');
     setTimeout(() => updateAllTimelineScrollPositions(), 200);
+}
+
+let zoomTimeout = null;
+
+function applySmartZoom() {
+    if (zoomTimeout) {
+        clearTimeout(zoomTimeout);
+    }
+    
+    zoomTimeout = setTimeout(() => {
+        document.querySelectorAll('.timeline').forEach(timeline => {
+            const container = timeline.closest('.timeline-container');
+            if (container) {
+                const ruler = container.querySelector('.timeline-ruler');
+                if (ruler) {
+                    ruler.remove();
+                }
+                const header = container.querySelector('.timeline-date-header');
+                if (header) {
+                    header.remove();
+                }
+            }
+            delete timelineStateCache[timeline.id];
+            scaleTimeline(timeline.id);
+        });
+        updateAllNowIndicators();
+        setTimeout(() => updateAllTimelineScrollPositions(), 200);
+        zoomTimeout = null;
+    }, 100);
 }
 
 function updateZoomDisplay() {
@@ -1495,6 +1877,45 @@ function showZoomIndicator(message) {
         indicator.classList.remove('visible');
     }, 2000);
 }
+
+// ============================================================
+// ENSURE RULERS EXIST - HEARTBEAT
+// ============================================================
+
+function ensureRulersExist() {
+    document.querySelectorAll('.timeline').forEach(timeline => {
+        const container = timeline.closest('.timeline-container');
+        if (container) {
+            const ruler = container.querySelector('.timeline-ruler');
+            if (!ruler) {
+                generateTimelineRuler(timeline);
+            }
+            
+            const nowMarker = container.querySelector('.ruler-now-marker');
+            if (!nowMarker) {
+                updateNowIndicatorPosition(timeline);
+            }
+        }
+    });
+}
+
+function startDynamicTimeUpdates() {
+    setInterval(() => {
+        updateAllJobTimes();
+        updateAllMachineStatuses();
+        updateAllJobColors();
+        updateCompletedJobs();
+        updateAllTimelineScrollPositions();
+        ensureRulersExist();
+    }, 30000);
+}
+
+window.addEventListener('resize', function() {
+    clearTimeout(this._resizeTimeout);
+    this._resizeTimeout = setTimeout(() => {
+        ensureRulersExist();
+    }, 300);
+});
 
 // ============================================================
 // DEBUG FUNCTIONS
@@ -1545,7 +1966,9 @@ function debugRulerAlignment(timelineId) {
         const rightPx = jobRect.right - containerRect.left + scrollLeft;
         const leftPercent = (leftPx / totalWidth) * 100;
         const rightPercent = (rightPx / totalWidth) * 100;
-        console.log('  Job ' + index + ': left=' + leftPercent.toFixed(2) + '%, right=' + rightPercent.toFixed(2) + '%');
+        const jobId = job.getAttribute('data-job-id');
+        const priority = jobDatabase[jobId]?.priority || 'N/A';
+        console.log(`  Job ${index} (Priority: ${priority}): left=${leftPercent.toFixed(2)}%, right=${rightPercent.toFixed(2)}%`);
     });
     
     const marker = ruler.querySelector('.ruler-now-marker');
@@ -1574,6 +1997,7 @@ window.smartResetZoom = smartResetZoom;
 window.currentZoomLevel = currentZoomLevel;
 window.refreshAllTimelines = refreshAllTimelines;
 window.sortPrintedJobs = sortPrintedJobs;
+window.sortTimelineJobsByPriority = sortTimelineJobsByPriority;
 window.updateNowIndicatorPosition = updateNowIndicatorPosition;
 window.updateAllNowIndicators = updateAllNowIndicators;
 window.initializeNowIndicators = initializeNowIndicators;
@@ -1584,5 +2008,10 @@ window.debugRulerAlignment = debugRulerAlignment;
 window.nowIndicatorPositions = nowIndicatorPositions;
 window.clearTimelineCache = clearTimelineCache;
 window.timelineStateCache = timelineStateCache;
+window.showJobOnTimeline = showJobOnTimeline;
+window.scrollToMachine = scrollToMachine;
+window.highlightJobAndMachine = highlightJobAndMachine;
+window.ensureRulersExist = ensureRulersExist;
+window.generateTimelineRuler = generateTimelineRuler;
 
-console.log('✅ timeline.js loaded - Complete rewrite with schedule preservation');
+console.log('✅ timeline.js loaded - Complete with proper ruler management');
