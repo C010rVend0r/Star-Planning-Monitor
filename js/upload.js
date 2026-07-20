@@ -154,6 +154,80 @@ function updateStatusIndicators(allUpdated = null) {
     
     statusContainer.innerHTML = statusHTML + summaryHTML;
 }
+// ============================================================
+// export BTN
+// ============================================================
+// ============================================================
+// EXPORT PL DATA TO EXCEL
+// ============================================================
+function exportPLData() {
+    console.log('📤 Exporting PL data...');
+    
+    try {
+        // Check if we have data to export
+        const dataToExport = Object.entries(plDatabase).map(([jobId, data]) => ({
+            'Job ID': jobId,
+            'Job Number': data.jobNumber || '',
+            'Job Name': data.jobName || data.name || '',
+            'Machine': data.machine || '',
+            'Priority': data.priority || '',
+            'Planning Status': data.planningStatus || 'Unplanned',
+            'AW Status': data.prepressStatus || data.awStatus || 'Unknown',
+            'Status Date': data.statusDate ? new Date(data.statusDate).toLocaleDateString() : '',
+            'Estimated Date': data.estimatedDate ? new Date(data.estimatedDate).toLocaleDateString() : '',
+            'Setup Time (min)': data.setupTime || data.setup || 0,
+            'Quantity (m)': data.meters || data.quantity || 0,
+            'Machine Speed': data.machineSpeed || 200,
+            'Material Type': data.materialType || '',
+            'Thickness': data.thickness || '',
+            'Film': data.film || '',
+            'Cutting Method': data.cuttingMethod || '',
+            'New Plat': data.newPlat || '',
+            'Material Availability': data.materialAvailability || '',
+            'Delivered': data.delivered || '',
+            'Delivered2': data.delivered2 || '',
+            'Downtime': data.downtime || 0,
+            'Is Complete': data.isComplete ? 'Yes' : 'No',
+            'Is Planned': data.isPlanned ? 'Yes' : 'No'
+        }));
+        
+        if (dataToExport.length === 0) {
+            showNotification('⚠️ No data to export!', 'warning');
+            return;
+        }
+        
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        
+        // Auto-size columns
+        const colWidths = [];
+        for (let i = 0; i < Object.keys(dataToExport[0]).length; i++) {
+            colWidths.push({ wch: 15 });
+        }
+        ws['!cols'] = colWidths;
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'PL Data');
+        
+        // Generate filename with date
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const filename = `PL_Export_${dateStr}.xlsx`;
+        
+        // Save file
+        XLSX.writeFile(wb, filename);
+        
+        showNotification(`✅ Exported ${dataToExport.length} jobs to ${filename}`, 'success');
+        console.log(`✅ Exported ${dataToExport.length} jobs to ${filename}`);
+        
+    } catch (error) {
+        console.error('❌ Export failed:', error);
+        showNotification('❌ Export failed: ' + error.message, 'error');
+    }
+}
+
+// Make sure to expose it to window
+window.exportPLData = exportPLData;
 
 // ============================================================
 // UPDATE REAL TIME INDICATOR
@@ -309,6 +383,21 @@ function setupExcelUploads() {
             }
             this.value = '';
         });
+    }
+    const exportBtn = document.getElementById('export-pl-btn');
+    if (exportBtn) {
+        // Remove any existing event listeners by cloning
+        const newExportBtn = exportBtn.cloneNode(true);
+        exportBtn.parentNode.replaceChild(newExportBtn, exportBtn);
+        
+        newExportBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Export button clicked');
+            exportPLData();
+        });
+        console.log('✅ Export button handler attached');
+    } else {
+        console.warn('⚠️ Export button #export-pl-btn not found in DOM');
     }
 }
 
