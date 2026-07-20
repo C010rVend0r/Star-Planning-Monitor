@@ -1550,17 +1550,34 @@ function updateCompletedJobs() {
                 }
             });
             
-            const allPrintedJobs = timeline.querySelectorAll('.job.job-printed');
-            if (allPrintedJobs.length > 3) {
-                const toRemove = Array.from(allPrintedJobs).slice(0, allPrintedJobs.length - 3);
-                toRemove.forEach(job => {
+            // ⭐ IMMEDIATELY REMOVE ALL PRINTED JOBS EXCEPT THE MOST RECENT ONE
+            // First, sort printed jobs by end time (most recent first)
+            const allPrintedJobs = Array.from(timeline.querySelectorAll('.job.job-printed'));
+            
+            if (allPrintedJobs.length > 0) {
+                // Get end times for each printed job
+                const printedWithTimes = allPrintedJobs.map(job => {
                     const jobId = job.getAttribute('data-job-id');
+                    const endTime = jobSchedule[jobId]?.endTime || 0;
+                    return { job, jobId, endTime };
+                });
+                
+                // Sort by end time (most recent first)
+                printedWithTimes.sort((a, b) => b.endTime - a.endTime);
+                
+                // Keep only the most recent one (first in sorted array)
+                const toRemove = printedWithTimes.slice(1); // All except the first (most recent)
+                
+                toRemove.forEach(({ job, jobId }) => {
                     delete jobSchedule[jobId];
                     job.remove();
                     hasChanges = true;
                     console.log(`🗑️ Removed old printed job ${jobId} from ${timeline.id}`);
                 });
-                console.log(`🗑️ Removed ${toRemove.length} old printed jobs from ${timeline.id}, kept 3 most recent`);
+                
+                if (toRemove.length > 0) {
+                    console.log(`🗑️ Removed ${toRemove.length} old printed jobs from ${timeline.id}, kept 1 most recent`);
+                }
             }
             
             sortPrintedJobs(timeline);
