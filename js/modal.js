@@ -558,6 +558,34 @@ function saveJobDetailsFromModal() {
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
     showNotification(`✅ "${name}" updated successfully`, 'success');
     closeJobDetailsModal();
+    
+    // ⭐ CRITICAL: Force immediate save to Supabase when job is marked as Complete
+    if (isNowComplete) {
+        console.log('🔄 Force saving completed job to Supabase...');
+        // Save immediately instead of waiting for auto-save
+        setTimeout(async () => {
+            try {
+                // Save job data
+                const jobDataToSave = convertCamelToSnake(jobData);
+                jobDataToSave.job_id = jobId;
+                await supabaseSaveJob(jobId, jobDataToSave);
+                
+                // Save schedule with is_printed = true
+                if (jobSchedule[jobId]) {
+                    const scheduleData = {
+                        start_time: new Date(jobSchedule[jobId].startTime).toISOString(),
+                        end_time: new Date(jobSchedule[jobId].endTime).toISOString(),
+                        timeline_id: jobSchedule[jobId].timelineId,
+                        is_printed: true
+                    };
+                    await supabaseSaveSchedule(jobId, scheduleData);
+                    console.log(`✅ Completed job ${jobId} saved to Supabase`);
+                }
+            } catch (error) {
+                console.error('❌ Error saving completed job:', error);
+            }
+        }, 100);
+    }
 }
 
 function addJobToTimelineFromModal() {
