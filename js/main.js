@@ -44,6 +44,23 @@ async function initializeApp() {
     // Populate production feed with initial jobs
     populateProductionFeed();
     
+    // ⭐ CREATE FILTER PANEL ON PAGE LOAD (but keep it hidden)
+    // This ensures the filter checkboxes exist when we need to sync them
+    if (!document.getElementById('filter-panel')) {
+        console.log('Creating filter panel on page load...');
+        // Call toggleFilterPanel to create it
+        toggleFilterPanel();
+        // Immediately hide it
+        setTimeout(() => {
+            const panel = document.getElementById('filter-panel');
+            if (panel) {
+                panel.classList.remove('active');
+                const filterBtn = document.getElementById('filter-btn');
+                if (filterBtn) filterBtn.classList.remove('active');
+            }
+        }, 50);
+    }
+    
     // Initialize machine elements
     initializeMachineElements();
     
