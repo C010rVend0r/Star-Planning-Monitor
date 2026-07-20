@@ -66,6 +66,9 @@ const PL_STATUSES = ['Complete', 'Planned', 'Unplanned', 'PL-Deleted', 'PL-Hold'
 
 const ALL_STATUSES = [...AW_STATUSES, ...PL_STATUSES];
 
+let isUpdatingJobTimes = false;
+let jobTimeUpdateTimeout = null;
+
 let filterStatuses = new Set();
 
 AW_STATUSES.forEach(status => {
@@ -142,13 +145,19 @@ function formatTime(date) {
 }
 
 // ============================================================
+// FORMAT DATE ONLY
+// ============================================================
+function formatDateOnly(date) {
+    if (!date || isNaN(date.getTime())) return '01/01/1900';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+}
+
+// ============================================================
 // CREATE JOB ELEMENTS
 // ============================================================
-// feed.js - Update createJobElement function
-// ============================================================
-// CREATE JOB ELEMENT - WITH PRIORITY & COMPLETE STATUS
-// ============================================================
-
 function createJobElement(jobId, jobData) {
     const job = document.createElement('div');
     job.className = 'job';
@@ -159,11 +168,11 @@ function createJobElement(jobId, jobData) {
     const duration = Math.round(calculateJobDuration(jobData, jobId));
     const printingTime = Math.round(jobData.quantity / currentSpeed);
     
-    // ✅ Check if job is complete
+    // Check if job is complete
     const isComplete = jobData.planningStatus === 'Complete' || jobData.isComplete === true;
     const isPlanned = jobData.planningStatus === 'Planned';
     
-    // ✅ If complete, add printed class and disable dragging
+    // If complete, add printed class and disable dragging
     if (isComplete) {
         job.classList.add('job-printed');
         job.setAttribute('draggable', 'false');
@@ -188,15 +197,37 @@ function createJobElement(jobId, jobData) {
         statusDateFormatted = '01/01/1900';
     }
     
-    // ✅ Get priority
+    // Get priority
     const priority = jobData.priority !== undefined ? jobData.priority : null;
     
-    // ✅ Priority color coding
+    // Priority color coding
     let priorityColor = '#6c757d';
     let priorityBgColor = 'rgba(108, 117, 125, 0.15)';
     let priorityBorderColor = 'rgba(108, 117, 125, 0.3)';
     
-
+    if (priority !== null) {
+        if (priority <= 3) {
+            priorityColor = '#dc3545';
+            priorityBgColor = 'rgba(220, 53, 69, 0.15)';
+            priorityBorderColor = 'rgba(220, 53, 69, 0.3)';
+        } else if (priority <= 10) {
+            priorityColor = '#fd7e14';
+            priorityBgColor = 'rgba(253, 126, 20, 0.15)';
+            priorityBorderColor = 'rgba(253, 126, 20, 0.3)';
+        } else if (priority <= 50) {
+            priorityColor = '#ffc107';
+            priorityBgColor = 'rgba(255, 193, 7, 0.15)';
+            priorityBorderColor = 'rgba(255, 193, 7, 0.3)';
+        } else if (priority <= 100) {
+            priorityColor = '#17a2b8';
+            priorityBgColor = 'rgba(23, 162, 184, 0.15)';
+            priorityBorderColor = 'rgba(23, 162, 184, 0.3)';
+        } else {
+            priorityColor = '#6c757d';
+            priorityBgColor = 'rgba(108, 117, 125, 0.15)';
+            priorityBorderColor = 'rgba(108, 117, 125, 0.3)';
+        }
+    }
     
     // Merge AW status with date
     const awDisplayText = `AW: ${statusDisplay} since: ${statusDateFormatted}`;
@@ -215,7 +246,7 @@ function createJobElement(jobId, jobData) {
     }
     const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
-    // ✅ Build priority badge HTML
+    // Build priority badge HTML
     let priorityBadgeHTML = '';
     if (priority !== null && !isComplete) {
         priorityBadgeHTML = `
@@ -236,7 +267,7 @@ function createJobElement(jobId, jobData) {
         `;
     }
     
-    // ✅ Complete badge for completed jobs
+    // Complete badge for completed jobs
     let completeBadgeHTML = '';
     if (isComplete) {
         completeBadgeHTML = `
@@ -256,7 +287,7 @@ function createJobElement(jobId, jobData) {
         `;
     }
     
-    // ✅ Planned badge for planned jobs
+    // Planned badge for planned jobs
     let plannedBadgeHTML = '';
     if (isPlanned && !isComplete) {
         plannedBadgeHTML = `
@@ -331,7 +362,7 @@ function createJobElement(jobId, jobData) {
         </div>
     `;
     
-    // ✅ Setup input event listeners (only if not complete)
+    // Setup input event listeners (only if not complete)
     if (!isComplete) {
         const setupInput = job.querySelector('.job-setup-input');
         if (setupInput) {
@@ -376,11 +407,10 @@ function createJobElement(jobId, jobData) {
         }
     }
     
-    // ✅ Click event - show on timeline if Planned, otherwise select
+    // Click event - show on timeline if Planned, otherwise select
     job.addEventListener('click', function(e) {
         e.stopPropagation();
         
-        // Don't trigger if clicking on inputs or buttons
         if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
             return;
         }
@@ -388,7 +418,6 @@ function createJobElement(jobId, jobData) {
         const jobId = this.getAttribute('data-job-id');
         const jobData = jobDatabase[jobId];
         
-        // ✅ If the job is Planned and not complete, show it on the timeline
         if (jobData && jobData.planningStatus === 'Planned' && !jobData.isComplete) {
             console.log('Planned job clicked - showing on timeline:', jobId);
             if (typeof showJobOnTimeline === 'function') {
@@ -399,7 +428,6 @@ function createJobElement(jobId, jobData) {
             return;
         }
         
-        // Otherwise select the job
         selectJob(this);
     });
     
@@ -444,36 +472,29 @@ function createJobElement(jobId, jobData) {
         }
     }
     
-    // Add tooltip for completed jobs
     if (isComplete) {
         job.setAttribute('title', `Completed - ${jobData.name || jobId}`);
     }
     
     return job;
 }
-// ============================================================
-// CREATE FEED JOB ELEMENT - WITH PRIORITY DISPLAY & CLICK TO VIEW
-// ============================================================
-// ============================================================
-// CREATE FEED JOB ELEMENT - WITH PRIORITY DISPLAY & CLICK TO VIEW
-// ============================================================
 
+// ============================================================
+// CREATE FEED JOB ELEMENT
+// ============================================================
 function createFeedJobElement(jobId, jobData) {
     const feedJob = document.createElement('div');
     feedJob.className = 'feed-job';
     feedJob.setAttribute('data-job-id', jobId);
     feedJob.setAttribute('draggable', 'true');
     
-    // Calculate duration for display
     const duration = calculateJobDuration(jobData, jobId);
     
-    // AW status - handle missing data
     let awStatus = jobData.rawAWStatus || jobData.awStatus || jobData.status || 'Unknown';
     if (awStatus === '' || awStatus === 'Pending') {
         awStatus = 'Unknown';
     }
     
-    // If the job only has PL data (no AW), show the PL status as the main status
     if (awStatus === 'Unknown' && jobData.planningStatus && jobData.planningStatus !== 'Unplanned') {
         awStatus = jobData.planningStatus;
     }
@@ -481,7 +502,6 @@ function createFeedJobElement(jobId, jobData) {
     const statusColor = statusColorMap[awStatus] || '#6c757d';
     const statusDisplay = statusDisplayMap[awStatus] || awStatus || 'Unknown';
     
-    // Format the status date
     let statusDateFormatted = '';
     if (jobData.statusDate) {
         const dateObj = new Date(jobData.statusDate);
@@ -494,17 +514,14 @@ function createFeedJobElement(jobId, jobData) {
         statusDateFormatted = '01/01/1900';
     }
     
-    // PL status
     const plStatus = jobData.planningStatus || 'Unplanned';
     const plDisplayStatus = statusDisplayMap[plStatus] || plStatus || 'Unknown';
     const plStatusColor = statusColorMap[plStatus] || '#6c757d';
     const isPlanned = plStatus === 'Planned';
     const isComplete = plStatus === 'Complete' || plStatus === 'Printed';
     
-    // Job number
     const jobNumber = jobData.jobNumber || jobId.replace('job-', 'JOB-').padEnd(8, '0');
     
-    // Format estimated date
     let estimatedDateFormatted = '';
     let estimatedDisplayText = '';
     if (jobData.estimatedDate) {
@@ -515,14 +532,11 @@ function createFeedJobElement(jobId, jobData) {
         }
     }
     
-    // Check if estimated date should be shown
     const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
     
-    // Get priority (lower number = higher priority)
     const priority = jobData.priority !== undefined ? jobData.priority : null;
     const priorityDisplay = priority !== null ? `Priority: ${priority}` : '';
     
-    // Priority color coding
     let priorityColor = '#6c757d';
     let priorityBgColor = 'rgba(108, 117, 125, 0.15)';
     let priorityBorderColor = 'rgba(108, 117, 125, 0.3)';
@@ -551,12 +565,9 @@ function createFeedJobElement(jobId, jobData) {
         }
     }
     
-    // Check if job is on timeline
     const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
-    const timelineIndicator = isOnTimeline ? '' : '';
     const machineDisplay = jobData.machine ? `Machine ${jobData.machine}` : '';
     
-    // Add classes for planned jobs (for styling only)
     if (isPlanned && isOnTimeline) {
         feedJob.classList.add('feed-job-planned-on-timeline');
         feedJob.setAttribute('title', `Click to view "${jobData.name || jobId}" on timeline`);
@@ -569,12 +580,9 @@ function createFeedJobElement(jobId, jobData) {
         feedJob.classList.add('feed-job-complete');
     }
     
-    // Click hint for Planned jobs on timeline
     const clickHint = (isPlanned && isOnTimeline) ? 
         `<span class="feed-click-hint" style="font-size:9px; color:#17a2b8; margin-left:4px; animation: clickHintPulse 2s ease-in-out infinite;">👆 Click to view</span>` : '';
     
-    // ✅ REMOVED: plannedBadge - no longer needed since PL status already shows it
-    // Only show complete badge for completed jobs
     const completeBadge = isComplete ? 
         `<span class="feed-complete-badge" style="font-size:9px; background:#6c757d20; color:#6c757d; border:1px solid #6c757d40; padding:1px 6px; border-radius:3px; margin-left:4px;">✅ Complete</span>` : '';
     
@@ -595,15 +603,6 @@ function createFeedJobElement(jobId, jobData) {
                                  font-weight:600;
                                  margin-left:6px;">
                         ⚡ ${priorityDisplay}
-                    </span>
-                ` : ''}
-                ${timelineIndicator ? `
-                    <span class="feed-timeline-indicator" 
-                          style="font-size:12px; 
-                                 color:#28a745; 
-                                 margin-left:4px;"
-                          title="Job is on timeline">
-                        ${timelineIndicator}
                     </span>
                 ` : ''}
                 ${machineDisplay ? `
@@ -683,11 +682,9 @@ function createFeedJobElement(jobId, jobData) {
         </div>
     `;
     
-    // ✅ Click event - Unified behavior
     feedJob.addEventListener('click', function(e) {
         e.stopPropagation();
         
-        // Don't trigger if clicking on inputs, buttons, or status elements
         if (e.target.closest('input') || e.target.closest('button') || 
             e.target.closest('.feed-status') || e.target.closest('.feed-pl-status')) {
             return;
@@ -696,7 +693,6 @@ function createFeedJobElement(jobId, jobData) {
         const jobId = this.getAttribute('data-job-id');
         const jobData = jobDatabase[jobId];
         
-        // ✅ Only Planned jobs on timeline open with single click
         if (jobData && jobData.planningStatus === 'Planned') {
             const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
             if (isOnTimeline) {
@@ -710,11 +706,9 @@ function createFeedJobElement(jobId, jobData) {
             }
         }
         
-        // ✅ For all other jobs: select (not open modal)
         selectJob(this);
     });
     
-    // ✅ Double click always opens modal for ALL jobs
     feedJob.addEventListener('dblclick', function(e) {
         e.stopPropagation();
         const jobId = this.getAttribute('data-job-id');
@@ -723,7 +717,6 @@ function createFeedJobElement(jobId, jobData) {
         }
     });
     
-    // ✅ Shift+click or Ctrl+click always opens modal
     feedJob.addEventListener('click', function(e) {
         if (e.shiftKey || e.ctrlKey || e.metaKey) {
             e.stopPropagation();
@@ -734,7 +727,6 @@ function createFeedJobElement(jobId, jobData) {
         }
     });
     
-    // Drag events for visual feedback
     feedJob.addEventListener('dragstart', function(e) {
         this.classList.add('feed-job-dragging');
         e.dataTransfer.effectAllowed = 'move';
@@ -747,8 +739,10 @@ function createFeedJobElement(jobId, jobData) {
     
     return feedJob;
 }
-// feed.js - Add function to update feed item status
 
+// ============================================================
+// UPDATE FEED ITEM STATUS
+// ============================================================
 function updateFeedItemStatus(jobId) {
     const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
     if (!feedItem) return;
@@ -761,7 +755,6 @@ function updateFeedItemStatus(jobId) {
     const isPlanned = plStatus === 'Planned';
     const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
     
-    // Update PL status element
     const plStatusElement = feedItem.querySelector('.feed-pl-status');
     if (plStatusElement) {
         const plStatusColor = isComplete ? '#6c757d' : (statusColorMap[plStatus] || '#6c757d');
@@ -774,7 +767,6 @@ function updateFeedItemStatus(jobId) {
         plStatusElement.style.border = `1px solid ${plStatusColor}40`;
     }
     
-    // Update classes
     feedItem.classList.remove('feed-job-planned', 'feed-job-planned-on-timeline', 'feed-job-complete');
     
     if (isComplete) {
@@ -785,10 +777,8 @@ function updateFeedItemStatus(jobId) {
         feedItem.classList.add('feed-job-planned');
     }
     
-    // Update badges
     const header = feedItem.querySelector('.feed-item-header');
     if (header) {
-        // Remove existing badges
         header.querySelectorAll('.feed-planned-badge, .feed-complete-badge').forEach(el => el.remove());
         
         if (isComplete) {
@@ -807,39 +797,9 @@ function updateFeedItemStatus(jobId) {
     }
 }
 
-// Expose the function
-window.updateFeedItemStatus = updateFeedItemStatus;
-// ============================================================
-// FORMAT DATE ONLY - "08/03/2026"
-// ============================================================
-function formatDateOnly(date) {
-    if (!date || isNaN(date.getTime())) return '01/01/1900';
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-}
-// ============================================================
-// FORMAT DATE ONLY - "08/03/2026"
-// ============================================================
-function formatDateOnly(date) {
-    if (!date || isNaN(date.getTime())) return '01/01/1900';
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-}
-
 // ============================================================
 // PRODUCTION FEED
 // ============================================================
-
-// ============================================================
-// PRODUCTION FEED
-// ============================================================
-
-// feed.js - Update populateProductionFeed
-
 function populateProductionFeed() {
     const productionFeedList = document.getElementById('production-feed-list');
     if (!productionFeedList) return;
@@ -868,48 +828,25 @@ function populateProductionFeed() {
         productionFeedList.appendChild(feedJob);
     });
     
-    // Apply filters
     applyFilter();
     updateFilterCounts();
     updateStatistics();
 }
 
 // ============================================================
-// SYNC FILTER CHECKBOXES - NEW FUNCTION
-// ============================================================
-
-function syncFilterCheckboxes() {
-    const filterPanel = document.getElementById('filter-panel');
-    if (!filterPanel) return;
-    
-    // Update all checkboxes to match filterStatuses
-    const checkboxes = filterPanel.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        const status = cb.value;
-        cb.checked = filterStatuses.has(status);
-    });
-}
-
-// ============================================================
 // STATISTICS
 // ============================================================
-// feed.js - Update the updateStatistics function
-
-// feed.js - Replace updateStatistics with this version
-
 function updateStatistics() {
     const allFeedItems = document.querySelectorAll('.feed-job');
     const visibleFeedItems = document.querySelectorAll('.feed-job:not(.filter-hidden)');
     const timelineJobs = document.querySelectorAll('.job:not(.job-printed)').length;
     
-    // Use IDs for stat cards
     const plannedJobsElement = document.getElementById('stat-planned');
     const pendingJobsElement = document.getElementById('stat-pending');
     
     if (plannedJobsElement) plannedJobsElement.textContent = timelineJobs;
     if (pendingJobsElement) pendingJobsElement.textContent = visibleFeedItems.length;
     
-    // Update feed count badges
     const feedCountElement = document.getElementById('feed-count');
     if (feedCountElement) feedCountElement.textContent = `${allFeedItems.length} jobs`;
     
@@ -927,15 +864,12 @@ function updateStatistics() {
     }
 }
 
-
 // ============================================================
 // FILTER FUNCTIONALITY
 // ============================================================
-
 function toggleFilterPanel() {
     let filterPanel = document.getElementById('filter-panel');
     
-    // If panel exists, toggle it
     if (filterPanel) {
         filterPanel.classList.toggle('active');
         const filterBtn = document.getElementById('filter-btn');
@@ -946,12 +880,10 @@ function toggleFilterPanel() {
         return;
     }
     
-    // Create filter panel
     filterPanel = document.createElement('div');
     filterPanel.id = 'filter-panel';
     filterPanel.className = 'filter-panel';
     
-    // Header
     const header = document.createElement('div');
     header.className = 'filter-header';
     header.innerHTML = `
@@ -964,7 +896,6 @@ function toggleFilterPanel() {
     `;
     filterPanel.appendChild(header);
     
-    // Info - smaller and grey
     const info = document.createElement('div');
     info.className = 'filter-info';
     info.innerHTML = `
@@ -974,7 +905,6 @@ function toggleFilterPanel() {
     `;
     filterPanel.appendChild(info);
     
-    // AW Section
     const awSection = document.createElement('div');
     awSection.className = 'filter-section';
     awSection.innerHTML = `
@@ -1024,12 +954,10 @@ function toggleFilterPanel() {
     });
     filterPanel.appendChild(awList);
     
-    // Divider
     const divider = document.createElement('hr');
     divider.className = 'filter-divider';
     filterPanel.appendChild(divider);
     
-    // PL Section
     const plSection = document.createElement('div');
     plSection.className = 'filter-section';
     plSection.innerHTML = `
@@ -1079,7 +1007,6 @@ function toggleFilterPanel() {
     });
     filterPanel.appendChild(plList);
     
-    // Insert filter panel after feed controls (before the feed list)
     const feedControls = document.querySelector('.feed-controls');
     const feedContainer = document.getElementById('production-feed-container');
     if (feedControls && feedContainer) {
@@ -1088,7 +1015,6 @@ function toggleFilterPanel() {
         feedControls.parentNode.insertBefore(filterPanel, feedControls.nextSibling);
     }
     
-    // AW Section Controls
     document.getElementById('aw-select-all').addEventListener('click', function(e) {
         e.stopPropagation();
         AW_STATUSES.forEach(status => filterStatuses.add(status));
@@ -1107,7 +1033,6 @@ function toggleFilterPanel() {
         updateFilterBadge();
     });
     
-    // PL Section Controls
     document.getElementById('pl-select-all').addEventListener('click', function(e) {
         e.stopPropagation();
         PL_STATUSES.forEach(status => filterStatuses.add(status));
@@ -1126,7 +1051,6 @@ function toggleFilterPanel() {
         updateFilterBadge();
     });
     
-    // Global Controls
     document.getElementById('select-all-statuses').addEventListener('click', function(e) {
         e.stopPropagation();
         ALL_STATUSES.forEach(status => filterStatuses.add(status));
@@ -1145,36 +1069,28 @@ function toggleFilterPanel() {
         updateFilterBadge();
     });
     
-// feed.js - Update the reset-default-filter handler in toggleFilterPanel
-
-// feed.js - Update the reset-default-filter handler in toggleFilterPanel
-
-document.getElementById('reset-default-filter').addEventListener('click', function(e) {
-    e.stopPropagation();
-    // Reset to default - include 'Unknown'
-    filterStatuses = new Set();
-    AW_STATUSES.forEach(status => {
-        if (status !== 'Missing Data' && status !== 'Deleted' && status !== 'On Hold') {
-            filterStatuses.add(status);
-        }
+    document.getElementById('reset-default-filter').addEventListener('click', function(e) {
+        e.stopPropagation();
+        filterStatuses = new Set();
+        AW_STATUSES.forEach(status => {
+            if (status !== 'Missing Data' && status !== 'Deleted' && status !== 'On Hold') {
+                filterStatuses.add(status);
+            }
+        });
+        filterStatuses.add('Unknown');
+        PL_STATUSES.forEach(status => {
+            if (status === 'Planned' || status === 'Unplanned') {
+                filterStatuses.add(status);
+            }
+        });
+        filterPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.checked = filterStatuses.has(cb.value);
+        });
+        applyFilter();
+        updateStatistics();
+        updateFilterBadge();
     });
-    // Add 'Unknown' to default filters
-    filterStatuses.add('Unknown');
-    PL_STATUSES.forEach(status => {
-        if (status === 'Planned' || status === 'Unplanned') {
-            filterStatuses.add(status);
-        }
-    });
-    // Update checkboxes
-    filterPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        cb.checked = filterStatuses.has(cb.value);
-    });
-    applyFilter();
-    updateStatistics();
-    updateFilterBadge();
-});
     
-    // Show panel with animation
     setTimeout(() => {
         filterPanel.classList.add('active');
         const filterBtn = document.getElementById('filter-btn');
@@ -1186,44 +1102,15 @@ document.getElementById('reset-default-filter').addEventListener('click', functi
     }, 50);
 }
 
-// ============================================================
-// not to ignor PL filters if AW uploads last
-// ============================================================
-// feed.js - Add these functions
-
-// Save and restore filter state
-function saveFilterState() {
-    return new Set(filterStatuses);
-}
-
-function restoreFilterState(savedState) {
-    filterStatuses = savedState;
-    // Update checkboxes to match
-    syncFilterCheckboxes();
-    applyFilter();
-    updateStatistics();
-    updateFilterBadge();
-}
-
-// Also update the populateProductionFeed function to preserve filters
-// feed.js - Replace populateProductionFeed with this version
-
-
-// ============================================================
-// UPDATE FILTER BADGE
-// ============================================================
-
 function updateFilterBadge() {
     const filterBadge = document.getElementById('filter-badge');
     if (!filterBadge) return;
     
-    // Count active filters
     let activeCount = 0;
     for (const status of filterStatuses) {
         activeCount++;
     }
     
-    // Count total available filters
     const totalFilters = ALL_STATUSES.length;
     
     if (activeCount > 0 && activeCount < totalFilters) {
@@ -1238,10 +1125,6 @@ function updateFilterBadge() {
     }
 }
 
-// ============================================================
-// SYNC FILTER CHECKBOXES
-// ============================================================
-
 function syncFilterCheckboxes() {
     const filterPanel = document.getElementById('filter-panel');
     if (!filterPanel) return;
@@ -1253,9 +1136,6 @@ function syncFilterCheckboxes() {
     });
     updateFilterBadge();
 }
-// feed.js - Replace the applyFilter and updateFilterCounts functions
-
-// feed.js - Replace applyFilter with this version
 
 function applyFilter() {
     const feedItems = document.querySelectorAll('.feed-job');
@@ -1280,7 +1160,6 @@ function applyFilter() {
             return;
         }
         
-        // Get AW status from the feed item's data attribute
         const statusElement = item.querySelector('.feed-status');
         let awStatus = '';
         if (statusElement) {
@@ -1293,7 +1172,6 @@ function applyFilter() {
             }
         }
         
-        // Get PL status from the feed item's data attribute or database
         const plStatusElement = item.querySelector('.feed-pl-status');
         let plStatus = '';
         if (plStatusElement) {
@@ -1305,7 +1183,6 @@ function applyFilter() {
             }
         }
         
-        // Also get from job database directly (most reliable)
         const jobId = item.getAttribute('data-job-id');
         const jobData = jobDatabase[jobId];
         if (jobData) {
@@ -1319,17 +1196,13 @@ function applyFilter() {
             }
         }
         
-        // Match AW status to AW_STATUSES
         let awMatched = null;
         if (awStatus) {
-            // Try direct match first
             if (AW_STATUSES.includes(awStatus)) {
                 awMatched = awStatus;
             } else {
-                // Try display name match
                 awMatched = AW_STATUSES.find(s => statusDisplayMap[s] === awStatus);
                 if (!awMatched) {
-                    // If it's a PL status, treat as Unknown for AW filtering
                     const isPLStatus = PL_STATUSES.some(s => statusDisplayMap[s] === awStatus || s === awStatus);
                     if (isPLStatus || awStatus === '' || awStatus === 'Pending') {
                         awMatched = 'Unknown';
@@ -1342,21 +1215,17 @@ function applyFilter() {
             awMatched = 'Unknown';
         }
         
-        // Match PL status to PL_STATUSES
         let plMatched = null;
         if (plStatus) {
-            // Direct match
             if (PL_STATUSES.includes(plStatus)) {
                 plMatched = plStatus;
             } else {
-                // Try display name match
                 for (const [key, value] of Object.entries(statusDisplayMap)) {
                     if (value === plStatus && PL_STATUSES.includes(key)) {
                         plMatched = key;
                         break;
                     }
                 }
-                // If still not found, use Unplanned as fallback
                 if (!plMatched) {
                     plMatched = 'Unplanned';
                 }
@@ -1365,18 +1234,12 @@ function applyFilter() {
             plMatched = 'Unplanned';
         }
         
-        // SPECIAL CASE: If AW status is 'Unknown' and there's no AW filter, show the job
-        // OR if the PL filter is active and the job matches the PL filter, show it
         let awVisible = true;
         if (hasAWFilter) {
-            // If the AW filter doesn't include 'Unknown', but the job has 'Unknown' AW status,
-            // we still want to show it if it has a valid PL status that matches the PL filter
             if (awMatched === 'Unknown' && !awFilterStatuses.has('Unknown')) {
-                // Only hide if there's no PL filter or if the PL filter also doesn't match
                 if (hasPLFilter) {
                     awVisible = plFilterStatuses.has(plMatched);
                 } else {
-                    // If only AW filter is active and doesn't include Unknown, hide Unknown jobs
                     awVisible = false;
                 }
             } else {
@@ -1389,7 +1252,6 @@ function applyFilter() {
             plVisible = plFilterStatuses.has(plMatched);
         }
         
-        // Final visibility decision
         let isVisible = false;
         if (hasAWFilter && hasPLFilter) {
             isVisible = awVisible && plVisible;
@@ -1409,7 +1271,6 @@ function applyFilter() {
         }
     });
     
-    // Update visible count display
     const visibleJobsElement = document.getElementById('feed-visible-count');
     if (visibleJobsElement) {
         const totalCount = feedItems.length;
@@ -1435,18 +1296,14 @@ function updateFilterCounts() {
         const jobId = item.getAttribute('data-job-id');
         const jobData = jobDatabase[jobId];
         
-        // Get AW status from database
         let awStatus = jobData?.rawAWStatus || jobData?.awStatus || jobData?.status || 'Unknown';
         
-        // Map to AW_STATUSES
         let awMatched = null;
         if (AW_STATUSES.includes(awStatus)) {
             awMatched = awStatus;
         } else {
-            // Try display name match
             awMatched = AW_STATUSES.find(s => statusDisplayMap[s] === awStatus);
             if (!awMatched) {
-                // Check if it's a PL status
                 const isPLStatus = PL_STATUSES.some(s => statusDisplayMap[s] === awStatus || s === awStatus);
                 if (isPLStatus || awStatus === '' || awStatus === 'Pending') {
                     awMatched = 'Unknown';
@@ -1457,15 +1314,12 @@ function updateFilterCounts() {
         }
         if (awMatched) counts[awMatched] = (counts[awMatched] || 0) + 1;
         
-        // Get PL status from database
         let plStatus = jobData?.planningStatus || 'Unplanned';
         
-        // Map to PL_STATUSES
         let plMatched = null;
         if (PL_STATUSES.includes(plStatus)) {
             plMatched = plStatus;
         } else {
-            // Try display name match
             for (const [key, value] of Object.entries(statusDisplayMap)) {
                 if (value === plStatus && PL_STATUSES.includes(key)) {
                     plMatched = key;
@@ -1479,14 +1333,12 @@ function updateFilterCounts() {
         if (plMatched) counts[plMatched] = (counts[plMatched] || 0) + 1;
     });
     
-    // Update filter count badges
     ALL_STATUSES.forEach(status => {
         const badgeId = `count-${status.replace(/\s/g, '-')}`;
         const badge = document.getElementById(badgeId);
         if (badge) badge.textContent = counts[status] || 0;
     });
     
-    // Update total jobs count
     const totalJobsElement = document.getElementById('feed-count');
     if (totalJobsElement) totalJobsElement.textContent = `${allFeedItems.length} jobs`;
 }
@@ -1494,7 +1346,6 @@ function updateFilterCounts() {
 // ============================================================
 // JOB UPDATE FUNCTIONS
 // ============================================================
-
 function updateJobSetup(jobId, newSetup) {
     const setup = parseFloat(newSetup);
     if (isNaN(setup) || setup < 0) return false;
@@ -1514,7 +1365,7 @@ function updateJobSetup(jobId, newSetup) {
         const timeline = jobElement ? jobElement.parentElement : null;
         if (timeline && !jobElement.classList.contains('job-printed')) {
             rescheduleTimelineJobs(timeline.id);
-            scaleTimeline(timeline.id);
+            debouncedScaleTimeline(timeline.id);
             updateAllJobTimes();
             updateAllJobColors();
             updateMachineStatus(timeline.closest('.machine'));
@@ -1542,7 +1393,7 @@ function updateJobQuantity(jobId, newQuantity) {
         const timeline = jobElement ? jobElement.parentElement : null;
         if (timeline && !jobElement.classList.contains('job-printed')) {
             rescheduleTimelineJobs(timeline.id);
-            scaleTimeline(timeline.id);
+            debouncedScaleTimeline(timeline.id);
             updateAllJobTimes();
             updateAllJobColors();
             updateMachineStatus(timeline.closest('.machine'));
@@ -1579,7 +1430,7 @@ function updateJobSpeed(jobId, newSpeed) {
         const timeline = jobElement.parentElement;
         if (timeline && !jobElement.classList.contains('job-printed')) {
             rescheduleTimelineJobs(timeline.id);
-            scaleTimeline(timeline.id);
+            debouncedScaleTimeline(timeline.id);
             updateAllJobTimes();
             updateAllJobColors();
             updateMachineStatus(timeline.closest('.machine'));
@@ -1688,7 +1539,6 @@ function updateJobCardDisplay(jobId) {
 // ============================================================
 // SELECTION
 // ============================================================
-
 function selectJob(jobElement) {
     if (selectedJob) selectedJob.classList.remove('job-selected');
     jobElement.classList.add('job-selected');
@@ -1698,7 +1548,6 @@ function selectJob(jobElement) {
 // ============================================================
 // HANDLE ADD JOB
 // ============================================================
-
 function handleAddJob() {
     const jobName = document.getElementById('job-name').value.trim();
     const setupTime = parseInt(document.getElementById('setup-time').value);
@@ -1734,7 +1583,6 @@ function handleAddJob() {
 // ============================================================
 // SEARCH
 // ============================================================
-
 function handleSearch(e) {
     const searchTerm = e.target.value.toLowerCase();
     const feedJobs = document.querySelectorAll('.feed-job');
@@ -1749,21 +1597,18 @@ function handleSearch(e) {
 // ============================================================
 // TIME FUNCTIONS
 // ============================================================
-
 function updateTime() {
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const currentTimeElement = document.getElementById('current-time');
     if (currentTimeElement) currentTimeElement.textContent = timeString;
     updateAllJobTimes();
-    // ✅ updateCompletedJobs already handles ruler regeneration
-    updateCompletedJobs();
+    // Don't call updateCompletedJobs here - it's handled by the interval in timeline.js
 }
 
 // ============================================================
-// UPDATE JOB TIME DISPLAY - Show time only once
+// UPDATE JOB TIME DISPLAY
 // ============================================================
-
 function updateJobTimeDisplay(jobId) {
     const jobElement = document.querySelector(`.job[data-job-id="${jobId}"]`);
     if (!jobElement || !jobSchedule[jobId]) return;
@@ -1772,19 +1617,16 @@ function updateJobTimeDisplay(jobId) {
     const startTime = new Date(schedule.startTime);
     const endTime = new Date(schedule.endTime);
     
-    // Show the time range in the .job-time element only
     const timeElement = jobElement.querySelector('.job-time');
     if (timeElement) {
         const duration = (endTime - startTime) / (60 * 60 * 1000);
         if (duration >= 6) {
-            // Show full date for long jobs
             timeElement.textContent = `${formatDateTime(startTime)} → ${formatDateTime(endTime)}`;
         } else {
             timeElement.textContent = `${formatTime(startTime)} → ${formatTime(endTime)}`;
         }
     }
     
-    // Remove the duplicate .job-time-range if it exists
     const timeRange = jobElement.querySelector('.job-time-range');
     if (timeRange) {
         timeRange.remove();
@@ -1792,21 +1634,70 @@ function updateJobTimeDisplay(jobId) {
     
     jobElement.dataset.startTime = schedule.startTime;
     jobElement.dataset.endTime = schedule.endTime;
-    
-    const timeline = jobElement.closest('.timeline');
-    if (timeline) {
-        const container = timeline.closest('.timeline-container');
-        if (container) {
-            container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
-            timeline.querySelectorAll('.hour-grid-line').forEach(el => el.remove());
-            scaleTimeline(timeline.id);
-        }
-    }
 }
 
 function updateAllJobTimes() {
-    for (let jobId in jobSchedule) {
-        updateJobTimeDisplay(jobId);
+    if (isUpdatingJobTimes) {
+        return;
+    }
+    isUpdatingJobTimes = true;
+    
+    try {
+        const timelineIds = new Set();
+        
+        for (let jobId in jobSchedule) {
+            const jobElement = document.querySelector(`.job[data-job-id="${jobId}"]`);
+            if (!jobElement || !jobSchedule[jobId]) continue;
+            
+            const schedule = jobSchedule[jobId];
+            const startTime = new Date(schedule.startTime);
+            const endTime = new Date(schedule.endTime);
+            
+            const timeElement = jobElement.querySelector('.job-time');
+            if (timeElement) {
+                const duration = (endTime - startTime) / (60 * 60 * 1000);
+                if (duration >= 6) {
+                    timeElement.textContent = `${formatDateTime(startTime)} → ${formatDateTime(endTime)}`;
+                } else {
+                    timeElement.textContent = `${formatTime(startTime)} → ${formatTime(endTime)}`;
+                }
+            }
+            
+            jobElement.dataset.startTime = schedule.startTime;
+            jobElement.dataset.endTime = schedule.endTime;
+            
+            const timeline = jobElement.closest('.timeline');
+            if (timeline) {
+                timelineIds.add(timeline.id);
+            }
+        }
+        
+        if (timelineIds.size > 0) {
+            if (jobTimeUpdateTimeout) {
+                clearTimeout(jobTimeUpdateTimeout);
+                jobTimeUpdateTimeout = null;
+            }
+            
+            jobTimeUpdateTimeout = setTimeout(() => {
+                const ids = Array.from(timelineIds);
+                ids.forEach(id => {
+                    if (typeof debouncedScaleTimeline === 'function') {
+                        debouncedScaleTimeline(id, 300);
+                    } else {
+                        delete timelineStateCache[id];
+                        if (typeof scaleTimeline === 'function') {
+                            scaleTimeline(id);
+                        }
+                    }
+                });
+                jobTimeUpdateTimeout = null;
+            }, 500);
+        }
+        
+    } finally {
+        setTimeout(() => {
+            isUpdatingJobTimes = false;
+        }, 100);
     }
 }
 
@@ -1814,16 +1705,12 @@ function startJobTimeUpdates() {
     setInterval(updateAllJobTimes, 60000);
 }
 
-// timeline.js - Replace startDynamicTimeUpdates
-
 function startDynamicTimeUpdates() {
     setInterval(() => {
         updateAllJobTimes();
         updateAllMachineStatuses();
         updateAllJobColors();
-        updateCompletedJobs(); // This already regenerates rulers when needed
         updateAllTimelineScrollPositions();
-        // ✅ Don't regenerate rulers here - they'll be regenerated when needed
     }, 30000);
 }
 
@@ -1853,3 +1740,7 @@ window.updateTime = updateTime;
 window.updateJobTimeDisplay = updateJobTimeDisplay;
 window.updateAllJobTimes = updateAllJobTimes;
 window.syncFilterCheckboxes = syncFilterCheckboxes;
+window.updateFeedItemStatus = updateFeedItemStatus;
+window.formatDateOnly = formatDateOnly;
+
+console.log('✅ feed.js loaded');
