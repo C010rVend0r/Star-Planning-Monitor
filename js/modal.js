@@ -386,7 +386,11 @@ function saveJobDetailsFromModal() {
     const timelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
     const isOnTimeline = !!timelineJob;
     
-    // ✅ Update job database with machine
+    // Check if status changed to Complete
+    const wasComplete = jobData.planningStatus === 'Complete' || jobData.isComplete === true;
+    const isNowComplete = plStatus === 'Complete';
+    
+    // Update job database with machine
     jobData.name = name;
     jobData.setup = setup;
     jobData.quantity = quantity;
@@ -395,7 +399,8 @@ function saveJobDetailsFromModal() {
     jobData.status = awStatus;
     jobData.planningStatus = plStatus;
     jobData.statusDate = statusDate.toISOString();
-    jobData.machine = machine;  // ✅ Save machine from dropdown
+    jobData.machine = machine;
+    jobData.isComplete = isNowComplete;
     
     console.log(`✅ Machine saved for job ${jobId}: ${machine}`);
     
@@ -407,7 +412,8 @@ function saveJobDetailsFromModal() {
         plDatabase[jobId].prepressStatus = awStatus;
         plDatabase[jobId].planningStatus = plStatus;
         plDatabase[jobId].statusDate = statusDate.toISOString();
-        plDatabase[jobId].machine = machine;  // ✅ Save machine to PL database
+        plDatabase[jobId].machine = machine;
+        plDatabase[jobId].isComplete = isNowComplete;
     }
     
     const additionalFields = {
@@ -429,6 +435,51 @@ function saveJobDetailsFromModal() {
         plDatabase[jobId].machineSpeed = speed;
         plDatabase[jobId].plannedSpeed = speed;
         plDatabase[jobId].actualSpeed = speed;
+    }
+    
+    // ⭐ CRITICAL: If job is marked as Complete, update the schedule to mark it as printed
+    if (isNowComplete && isOnTimeline && jobSchedule[jobId]) {
+        jobSchedule[jobId].isPrinted = true;
+        // Also update the end time to now if it hasn't been set
+        if (jobSchedule[jobId].endTime > Date.now()) {
+            jobSchedule[jobId].endTime = Date.now();
+        }
+        console.log(`✅ Job ${jobId} marked as printed in schedule`);
+        
+        // Add printed class to the job element
+        if (timelineJob) {
+            timelineJob.classList.add('job-printed');
+            timelineJob.setAttribute('draggable', 'false');
+            
+            // Disable inputs
+            const inputs = timelineJob.querySelectorAll('.job-editable-fields input');
+            inputs.forEach(input => {
+                input.disabled = true;
+                input.style.backgroundColor = '#e9ecef';
+                input.style.cursor = 'not-allowed';
+                input.style.opacity = '0.7';
+            });
+        }
+    }
+    
+    // If job was marked as Complete and is on timeline, remove other printed jobs
+    if (isNowComplete && isOnTimeline) {
+        const timeline = timelineJob?.parentElement;
+        if (timeline) {
+            const allPrinted = timeline.querySelectorAll('.job.job-printed');
+            if (allPrinted.length > 1) {
+                // Keep only the most recent (this one) and remove others
+                const toRemove = Array.from(allPrinted).filter(job => 
+                    job.getAttribute('data-job-id') !== jobId
+                );
+                toRemove.forEach(job => {
+                    const id = job.getAttribute('data-job-id');
+                    delete jobSchedule[id];
+                    job.remove();
+                    console.log(`🗑️ Removed old printed job ${id} from timeline`);
+                });
+            }
+        }
     }
     
     if (isOnTimeline && machine) {
