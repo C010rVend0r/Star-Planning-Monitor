@@ -494,29 +494,66 @@ async function supabaseSyncAllData() {
             console.log(`✅ Loaded ${awData.length} AW records from Supabase`);
         }
         
-        // ⭐ Load schedules - KEEP ONLY THE MOST RECENT PRINTED JOB PER TIMELINE
+        // ⭐ LOAD SCHEDULES - ONLY FOR PLANNED JOBS THAT ARE NOT COMPLETED
         if (schedules) {
+            // First, get all job IDs that are NOT Complete (from jobDatabase)
+            const activeJobIds = new Set();
+            const completeJobIds = new Set();
+            
+            for (const [jobId, data] of Object.entries(jobDatabase)) {
+                if (data.planningStatus === 'Complete' || data.isComplete === true) {
+                    completeJobIds.add(jobId);
+                } else if (data.planningStatus === 'Planned') {
+                    activeJobIds.add(jobId);
+                }
+            }
+            
+            console.log(`📊 Found ${activeJobIds.size} active jobs, ${completeJobIds.size} completed jobs`);
+            
             // Group schedules by timeline
             const schedulesByTimeline = {};
+            let loadedCount = 0;
+            let skippedCount = 0;
+            
             schedules.forEach(schedule => {
+                const jobId = schedule.job_id;
+                
+                // ⭐ SKIP: Completed jobs (they should not be on timeline)
+                if (completeJobIds.has(jobId)) {
+                    skippedCount++;
+                    console.log(`⏭️ Skipping completed job ${jobId} from schedule`);
+                    return;
+                }
+                
+                // ⭐ SKIP: Jobs that are not Planned anymore
+                if (!activeJobIds.has(jobId) && !schedule.is_printed) {
+                    skippedCount++;
+                    console.log(`⏭️ Skipping non-active job ${jobId} from schedule`);
+                    return;
+                }
+                
                 const timelineId = schedule.timeline_id;
                 if (!schedulesByTimeline[timelineId]) {
                     schedulesByTimeline[timelineId] = [];
                 }
+                
                 schedulesByTimeline[timelineId].push({
-                    jobId: schedule.job_id,
+                    jobId: jobId,
                     startTime: new Date(schedule.start_time).getTime(),
                     endTime: new Date(schedule.end_time).getTime(),
                     timelineId: timelineId,
                     isPrinted: schedule.is_printed || false
                 });
+                loadedCount++;
             });
+            
+            console.log(`📊 Loaded ${loadedCount} schedules (skipped ${skippedCount})`);
             
             // For each timeline, keep only the most recent printed job
             for (const [timelineId, schedulesList] of Object.entries(schedulesByTimeline)) {
                 // Separate printed and non-printed
-                const printed = schedulesList.filter(s => s.isPrinted);
-                const nonPrinted = schedulesList.filter(s => !s.isPrinted);
+                const printed = schedulesList.filter(s => s.isPrinted === true);
+                const nonPrinted = schedulesList.filter(s => s.isPrinted !== true);
                 
                 // Sort printed by end time (most recent first)
                 printed.sort((a, b) => b.endTime - a.endTime);
@@ -542,7 +579,7 @@ async function supabaseSyncAllData() {
                 });
             }
             
-            console.log(`✅ Loaded ${Object.keys(jobSchedule).length} schedules from Supabase (filtered to 1 printed per timeline)`);
+            console.log(`✅ Loaded ${Object.keys(jobSchedule).length} schedules from Supabase (filtered)`);
         }
         
         // Load speeds
