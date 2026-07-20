@@ -99,9 +99,6 @@ async function initializeApp() {
 // ============================================================
 // REBUILD TIMELINES FROM SCHEDULES
 // ============================================================
-// ============================================================
-// REBUILD TIMELINES FROM SCHEDULES - FIXED
-// ============================================================
 function rebuildTimelinesFromSchedules() {
     console.log('🔄 Rebuilding timelines from schedules...');
     
@@ -113,12 +110,12 @@ function rebuildTimelinesFromSchedules() {
         return;
     }
     
-    // Clear existing timeline jobs first (keep printed jobs)
+    // Clear existing timeline jobs FIRST (both printed and non-printed)
     document.querySelectorAll('.timeline').forEach(timeline => {
-        const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
+        const jobs = timeline.querySelectorAll('.job');
         jobs.forEach(job => {
             const jobId = job.getAttribute('data-job-id');
-            delete jobSchedule[jobId];
+            // Don't delete from jobSchedule here, we're rebuilding from it
             job.remove();
         });
     });
@@ -133,8 +130,9 @@ function rebuildTimelinesFromSchedules() {
         groupedByTimeline[timelineId].push({ jobId, schedule });
     }
     
-    // Sort each timeline by start time
+    // Process each timeline
     for (const [timelineId, jobs] of Object.entries(groupedByTimeline)) {
+        // Sort by start time
         jobs.sort((a, b) => a.schedule.startTime - b.schedule.startTime);
         
         const timeline = document.getElementById(timelineId);
@@ -145,80 +143,109 @@ function rebuildTimelinesFromSchedules() {
         
         console.log(`📊 Adding ${jobs.length} jobs to ${timelineId}`);
         
-        // ⭐ Get existing printed jobs on this timeline
-        const existingPrinted = timeline.querySelectorAll('.job.job-printed');
-        
-        // ⭐ For each printed job, check if it's the most recent one
-        // If there are multiple printed jobs, keep only the most recent
-        const printedWithTimes = [];
-        existingPrinted.forEach(job => {
-            const id = job.getAttribute('data-job-id');
-            const endTime = jobSchedule[id]?.endTime || 0;
-            printedWithTimes.push({ job, id, endTime });
-        });
-        
-        // Sort printed jobs by end time (most recent first)
-        printedWithTimes.sort((a, b) => b.endTime - a.endTime);
-        
-        // Remove all but the most recent printed job
-        const toRemove = printedWithTimes.slice(1);
-        toRemove.forEach(({ job, id }) => {
-            delete jobSchedule[id];
-            job.remove();
-            console.log(`🗑️ Removed old printed job ${id} from ${timelineId}`);
-        });
-        
-        // Add non-printed jobs
-        let printedCount = 0;
-        for (const { jobId, schedule } of jobs) {
+        // Filter out jobs that are Complete or don't exist in database
+        const validJobs = jobs.filter(({ jobId, schedule }) => {
             const jobData = jobDatabase[jobId];
             if (!jobData) {
-                console.warn(`⚠️ Job data not found for ${jobId}`);
-                continue;
+                console.warn(`⚠️ Job data not found for ${jobId}, removing from schedule`);
+                delete jobSchedule[jobId];
+                return false;
             }
             
-            // ⭐ Skip if this is a printed job and we already have one
-            if (schedule.isPrinted) {
-                printedCount++;
-                if (printedCount > 1) {
-                    console.log(`⚠️ Skipping extra printed job ${jobId}`);
-                    delete jobSchedule[jobId];
-                    continue;
-                }
+            // ⭐ Skip completed jobs (they should not be on timeline)
+            if (jobData.planningStatus === 'Complete' || jobData.isComplete === true) {
+                console.log(`⏭️ Skipping completed job ${jobId} from timeline`);
+                delete jobSchedule[jobId];
+                return false;
             }
             
-            // Check if already on timeline
-            const existing = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
-            if (existing) continue;
+            return true;
+        });
+        
+        // Separate printed and non-printed jobs
+        const printedJobs = validJobs.filter(j => j.schedule.isPrinted === true);
+        const nonPrintedJobs = validJobs.filter(j => j.schedule.isPrinted !== true);
+        
+        // ⭐ For printed jobs: keep only the most recent one
+        printedJobs.sort((a, b) => b.schedule.endTime - a.schedule.endTime);
+        const keptPrinted = printedJobs.slice(0, 1);
+        const removedPrinted = printedJobs.slice(1);
+        
+        // Remove old printed jobs from schedule
+        removedPrinted.forEach(({ jobId }) => {
+            delete jobSchedule[jobId];
+            console.log(`🗑️ Removed old printed job ${jobId} from ${timelineId}`);
+        });
+        
+        // Clear timeline
+        while (timeline.firstChild) {
+            timeline.removeChild(timeline.firstChild);
+        }
+        
+        // ⭐ Add printed jobs FIRST (left side)
+        keptPrinted.forEach(({ jobId, schedule }) => {
+            const jobData = jobDatabase[jobId];
+            if (!jobData) return;
             
-            // Create the job element
             const jobElement = createJobElement(jobId, jobData);
+            // Ensure it's marked as printed
+            if (!jobElement.classList.contains('job-printed')) {
+                jobElement.classList.add('job-printed');
+            }
+            jobElement.setAttribute('draggable', 'false');
+            timeline.appendChild(jobElement);
+            updateJobTimeDisplay(jobId);
+        });
+        
+        // ⭐ Add non-printed jobs AFTER printed ones
+        nonPrintedJobs.forEach(({ jobId, schedule }) => {
+            const jobData = jobDatabase[jobId];
+            if (!jobData) return;
             
-            // Insert before printed jobs
-            const firstPrinted = timeline.querySelector('.job.job-printed');
-            if (firstPrinted) {
-                timeline.insertBefore(jobElement, firstPrinted);
-            } else {
-                timeline.appendChild(jobElement);
+            const jobElement = createJobElement(jobId, jobData);
+            timeline.appendChild(jobElement);
+            updateJobTimeDisplay(jobId);
+        });
+        
+        // Sort non-printed jobs by priority
+        const nonPrintedElements = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+        if (nonPrintedElements.length > 1) {
+            nonPrintedElements.sort((a, b) => {
+                const aId = a.getAttribute('data-job-id');
+                const bId = b.getAttribute('data-job-id');
+                const aPriority = jobDatabase[aId]?.priority !== undefined ? jobDatabase[aId].priority : 999;
+                const bPriority = jobDatabase[bId]?.priority !== undefined ? jobDatabase[bId].priority : 999;
+                return aPriority - bPriority;
+            });
+            
+            // Get printed jobs
+            const printedEls = Array.from(timeline.querySelectorAll('.job.job-printed'));
+            
+            // Clear timeline
+            while (timeline.firstChild) {
+                timeline.removeChild(timeline.firstChild);
             }
             
-            // Update the time display
-            updateJobTimeDisplay(jobId);
+            // Add printed first, then sorted non-printed
+            printedEls.forEach(job => timeline.appendChild(job));
+            nonPrintedElements.forEach(job => timeline.appendChild(job));
         }
     }
     
     // Update all timelines
     document.querySelectorAll('.timeline').forEach(timeline => {
-        // ⭐ After rebuilding, ensure only 1 printed job remains per timeline
-        const printedJobs = timeline.querySelectorAll('.job.job-printed');
-        if (printedJobs.length > 1) {
-            const toRemove = Array.from(printedJobs).slice(0, printedJobs.length - 1);
-            toRemove.forEach(job => {
-                const jobId = job.getAttribute('data-job-id');
-                delete jobSchedule[jobId];
-                job.remove();
-                console.log(`🗑️ Cleaned up extra printed job ${jobId}`);
-            });
+        // Final check: ensure printed jobs are at the beginning
+        const printedJobs = Array.from(timeline.querySelectorAll('.job.job-printed'));
+        const nonPrintedJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
+        
+        if (printedJobs.length > 0) {
+            const firstJob = timeline.firstChild;
+            if (firstJob && !firstJob.classList.contains('job-printed')) {
+                printedJobs.forEach(job => job.remove());
+                printedJobs.forEach(job => {
+                    timeline.insertBefore(job, timeline.firstChild);
+                });
+            }
         }
         
         debouncedScaleTimeline(timeline.id);
@@ -234,7 +261,7 @@ function rebuildTimelinesFromSchedules() {
     applySmartZoom();
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
     
-    console.log('✅ Timelines rebuilt from schedules - Only 1 printed job kept per timeline');
+    console.log('✅ Timelines rebuilt from schedules');
 }
 // ============================================================
 // AUTO-SAVE TRIGGERS
