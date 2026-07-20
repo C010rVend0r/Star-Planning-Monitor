@@ -874,7 +874,6 @@ async function autoSaveAllData() {
         const jobsToSave = {};
         for (const [jobId, data] of Object.entries(jobDatabase)) {
             jobsToSave[jobId] = convertCamelToSnake(data);
-            // Ensure job_id is set
             jobsToSave[jobId].job_id = jobId;
         }
         if (Object.keys(jobsToSave).length > 0) {
@@ -888,14 +887,14 @@ async function autoSaveAllData() {
             }
         }
         
-        // Save schedules
+        // ⭐ Save schedules - make sure is_printed is saved correctly
         const schedulesToSave = {};
         for (const [jobId, data] of Object.entries(jobSchedule)) {
             schedulesToSave[jobId] = {
                 start_time: new Date(data.startTime).toISOString(),
                 end_time: new Date(data.endTime).toISOString(),
                 timeline_id: data.timelineId,
-                is_printed: data.isPrinted || false
+                is_printed: data.isPrinted || false  // ⭐ This must be saved
             };
         }
         if (Object.keys(schedulesToSave).length > 0) {
