@@ -580,8 +580,6 @@ function createFeedJobElement(jobId, jobData) {
         feedJob.classList.add('feed-job-complete');
     }
     
-    const clickHint = (isPlanned && isOnTimeline) ? 
-        `<span class="feed-click-hint" style="font-size:9px; color:#17a2b8; margin-left:4px; animation: clickHintPulse 2s ease-in-out infinite;">👆 Click to view</span>` : '';
     
     const completeBadge = isComplete ? 
         `<span class="feed-complete-badge" style="font-size:9px; background:#6c757d20; color:#6c757d; border:1px solid #6c757d40; padding:1px 6px; border-radius:3px; margin-left:4px;">✅ Complete</span>` : '';
@@ -616,7 +614,7 @@ function createFeedJobElement(jobId, jobData) {
                         ⚙️ ${machineDisplay}
                     </span>
                 ` : ''}
-                ${clickHint}
+    
             </div>
             <div class="feed-status-wrapper">
                 <span class="feed-status" 
