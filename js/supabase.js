@@ -454,9 +454,7 @@ async function supabaseSyncAllData() {
         if (jobs) {
             jobs.forEach(job => {
                 const jobId = job.job_id;
-                // Convert snake_case to camelCase for compatibility
                 jobDatabase[jobId] = convertSnakeToCamel(job);
-                // Also store original snake_case version for PL data
                 if (!plDatabase[jobId]) {
                     plDatabase[jobId] = {};
                 }
@@ -474,7 +472,7 @@ async function supabaseSyncAllData() {
             console.log(`✅ Loaded ${jobs.length} jobs from Supabase`);
         }
         
-        // Load PL data (additional fields)
+        // Load PL data
         if (plData) {
             plData.forEach(pl => {
                 const jobId = pl.job_id;
@@ -496,18 +494,55 @@ async function supabaseSyncAllData() {
             console.log(`✅ Loaded ${awData.length} AW records from Supabase`);
         }
         
-        // Load schedules
+        // ⭐ Load schedules - KEEP ONLY THE MOST RECENT PRINTED JOB PER TIMELINE
         if (schedules) {
+            // Group schedules by timeline
+            const schedulesByTimeline = {};
             schedules.forEach(schedule => {
-                const jobId = schedule.job_id;
-                jobSchedule[jobId] = {
+                const timelineId = schedule.timeline_id;
+                if (!schedulesByTimeline[timelineId]) {
+                    schedulesByTimeline[timelineId] = [];
+                }
+                schedulesByTimeline[timelineId].push({
+                    jobId: schedule.job_id,
                     startTime: new Date(schedule.start_time).getTime(),
                     endTime: new Date(schedule.end_time).getTime(),
-                    timelineId: schedule.timeline_id,
+                    timelineId: timelineId,
                     isPrinted: schedule.is_printed || false
-                };
+                });
             });
-            console.log(`✅ Loaded ${schedules.length} schedules from Supabase`);
+            
+            // For each timeline, keep only the most recent printed job
+            for (const [timelineId, schedulesList] of Object.entries(schedulesByTimeline)) {
+                // Separate printed and non-printed
+                const printed = schedulesList.filter(s => s.isPrinted);
+                const nonPrinted = schedulesList.filter(s => !s.isPrinted);
+                
+                // Sort printed by end time (most recent first)
+                printed.sort((a, b) => b.endTime - a.endTime);
+                
+                // Keep only the most recent printed job
+                const keptPrinted = printed.slice(0, 1);
+                const removedPrinted = printed.slice(1);
+                
+                // Log removed jobs
+                removedPrinted.forEach(s => {
+                    console.log(`🗑️ Filtered out old printed job ${s.jobId} from ${timelineId}`);
+                });
+                
+                // Add all non-printed and the one kept printed job
+                const finalSchedules = [...nonPrinted, ...keptPrinted];
+                finalSchedules.forEach(s => {
+                    jobSchedule[s.jobId] = {
+                        startTime: s.startTime,
+                        endTime: s.endTime,
+                        timelineId: s.timelineId,
+                        isPrinted: s.isPrinted
+                    };
+                });
+            }
+            
+            console.log(`✅ Loaded ${Object.keys(jobSchedule).length} schedules from Supabase (filtered to 1 printed per timeline)`);
         }
         
         // Load speeds
