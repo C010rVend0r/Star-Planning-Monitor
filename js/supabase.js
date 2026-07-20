@@ -432,6 +432,9 @@ window.supabaseSaveMultipleSchedules = supabaseSaveMultipleSchedules;
 async function supabaseSyncAllData() {
     console.log('🔄 Syncing all data from Supabase...');
     
+    // ⭐ SAVE THE CURRENT FILTER STATE BEFORE CLEARING DATA
+    const savedFilterStatuses = new Set(filterStatuses);
+    
     try {
         // Load all data in parallel
         const [jobs, plData, awData, schedules, speeds, uploadStatus] = await Promise.all([
@@ -494,9 +497,8 @@ async function supabaseSyncAllData() {
             console.log(`✅ Loaded ${awData.length} AW records from Supabase`);
         }
         
-        // ⭐ LOAD SCHEDULES - ONLY FOR PLANNED JOBS THAT ARE NOT COMPLETED
+        // Load schedules
         if (schedules) {
-            // First, get all job IDs that are NOT Complete (from jobDatabase)
             const activeJobIds = new Set();
             const completeJobIds = new Set();
             
@@ -510,7 +512,6 @@ async function supabaseSyncAllData() {
             
             console.log(`📊 Found ${activeJobIds.size} active jobs, ${completeJobIds.size} completed jobs`);
             
-            // Group schedules by timeline
             const schedulesByTimeline = {};
             let loadedCount = 0;
             let skippedCount = 0;
@@ -518,14 +519,12 @@ async function supabaseSyncAllData() {
             schedules.forEach(schedule => {
                 const jobId = schedule.job_id;
                 
-                // ⭐ SKIP: Completed jobs (they should not be on timeline)
                 if (completeJobIds.has(jobId)) {
                     skippedCount++;
                     console.log(`⏭️ Skipping completed job ${jobId} from schedule`);
                     return;
                 }
                 
-                // ⭐ SKIP: Jobs that are not Planned anymore
                 if (!activeJobIds.has(jobId) && !schedule.is_printed) {
                     skippedCount++;
                     console.log(`⏭️ Skipping non-active job ${jobId} from schedule`);
@@ -549,25 +548,19 @@ async function supabaseSyncAllData() {
             
             console.log(`📊 Loaded ${loadedCount} schedules (skipped ${skippedCount})`);
             
-            // For each timeline, keep only the most recent printed job
             for (const [timelineId, schedulesList] of Object.entries(schedulesByTimeline)) {
-                // Separate printed and non-printed
                 const printed = schedulesList.filter(s => s.isPrinted === true);
                 const nonPrinted = schedulesList.filter(s => s.isPrinted !== true);
                 
-                // Sort printed by end time (most recent first)
                 printed.sort((a, b) => b.endTime - a.endTime);
                 
-                // Keep only the most recent printed job
                 const keptPrinted = printed.slice(0, 1);
                 const removedPrinted = printed.slice(1);
                 
-                // Log removed jobs
                 removedPrinted.forEach(s => {
                     console.log(`🗑️ Filtered out old printed job ${s.jobId} from ${timelineId}`);
                 });
                 
-                // Add all non-printed and the one kept printed job
                 const finalSchedules = [...nonPrinted, ...keptPrinted];
                 finalSchedules.forEach(s => {
                     jobSchedule[s.jobId] = {
@@ -602,11 +595,66 @@ async function supabaseSyncAllData() {
             console.log(`✅ Loaded upload status from Supabase`);
         }
         
-        console.log('✅ Sync complete!');
+        // ⭐ RESTORE THE FILTER STATE AFTER DATA IS LOADED
+        filterStatuses = savedFilterStatuses;
+        
+        // ⭐ RE-APPLY FILTERS - Use a small delay to ensure DOM is ready
+        setTimeout(() => {
+            // Sync checkboxes if filter panel exists
+            if (typeof syncFilterCheckboxes === 'function') {
+                try {
+                    syncFilterCheckboxes();
+                } catch (e) {
+                    console.warn('Could not sync filter checkboxes:', e.message);
+                }
+            }
+            
+            // Apply filter
+            if (typeof applyFilter === 'function') {
+                try {
+                    applyFilter();
+                } catch (e) {
+                    console.warn('Could not apply filter:', e.message);
+                }
+            }
+            
+            // Update filter badge
+            if (typeof updateFilterBadge === 'function') {
+                try {
+                    updateFilterBadge();
+                } catch (e) {
+                    console.warn('Could not update filter badge:', e.message);
+                }
+            }
+            
+            // Update statistics
+            if (typeof updateStatistics === 'function') {
+                try {
+                    updateStatistics();
+                } catch (e) {
+                    console.warn('Could not update statistics:', e.message);
+                }
+            }
+        }, 100);
+        
+        console.log('✅ Sync complete! Filter state restored.');
         return true;
         
     } catch (error) {
         console.error('❌ Error syncing data from Supabase:', error);
+        // ⭐ Even on error, try to restore filter state
+        filterStatuses = savedFilterStatuses;
+        setTimeout(() => {
+            if (typeof syncFilterCheckboxes === 'function') {
+                try { syncFilterCheckboxes(); } catch(e) {}
+            }
+            if (typeof applyFilter === 'function') {
+                try { applyFilter(); } catch(e) {}
+            }
+            if (typeof updateFilterBadge === 'function') {
+                try { updateFilterBadge(); } catch(e) {}
+            }
+        }, 100);
         return false;
     }
 }
