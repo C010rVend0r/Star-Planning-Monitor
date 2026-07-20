@@ -67,6 +67,7 @@ function sortTimelineJobsByPriority(timeline) {
     const activeJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
     if (activeJobs.length <= 1) return;
     
+    // Sort by priority (lower number = higher priority)
     activeJobs.sort((a, b) => {
         const aId = a.getAttribute('data-job-id');
         const bId = b.getAttribute('data-job-id');
@@ -86,16 +87,21 @@ function sortTimelineJobsByPriority(timeline) {
         return aJobNum.localeCompare(bJobNum);
     });
     
+    // ⭐ Get printed jobs (keep them at the beginning/left side)
     const printedJobs = Array.from(timeline.querySelectorAll('.job.job-printed'));
     
+    // Clear timeline
     while (timeline.firstChild) {
         timeline.removeChild(timeline.firstChild);
     }
     
+    // ⭐ Add printed jobs FIRST (left side)
     printedJobs.forEach(job => timeline.appendChild(job));
+    
+    // Then add active jobs sorted by priority
     activeJobs.forEach(job => timeline.appendChild(job));
     
-    console.log(`✅ Sorted ${timeline.id}: ${activeJobs.length} jobs by priority`);
+    console.log(`✅ Sorted ${timeline.id}: ${activeJobs.length} jobs by priority, ${printedJobs.length} printed at left`);
 }
 
 // ============================================================
@@ -1093,7 +1099,6 @@ function refreshAllTimelines() {
     
     console.log('✅ All timelines refreshed and rulers regenerated');
 }
-
 function sortPrintedJobs(timeline) {
     const printedJobs = [];
     const activeJobs = [];
@@ -1106,10 +1111,14 @@ function sortPrintedJobs(timeline) {
         }
     });
     
+    // Remove all jobs
     printedJobs.forEach(job => job.remove());
     activeJobs.forEach(job => job.remove());
     
+    // ⭐ Add printed jobs FIRST (left side)
     printedJobs.forEach(job => timeline.appendChild(job));
+    
+    // Then add active jobs
     activeJobs.forEach(job => timeline.appendChild(job));
 }
 
