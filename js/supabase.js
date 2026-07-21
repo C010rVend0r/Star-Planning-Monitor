@@ -180,12 +180,16 @@ async function supabaseSavePLData(jobId, plData) {
 }
 
 // ---------- AW DATA ----------
+// supabase.js - FIXED AW Data functions
+
+// ---------- AW DATA ----------
 async function supabaseLoadAllAWData() {
     try {
         const client = initSupabase();
         const { data, error } = await client
             .from('aw_data')
-            .select('*');
+            .select('*')
+            .order('job_number', { ascending: true });
         
         if (error) throw error;
         return data;
@@ -198,11 +202,30 @@ async function supabaseLoadAllAWData() {
 async function supabaseSaveAWData(jobNumber, awData) {
     try {
         const client = initSupabase();
+        
+        // ⭐ Match your database schema exactly
+        const dataToSave = {
+            job_number: jobNumber,
+            status: awData.status || awData.raw_status || 'Unknown',
+            raw_status: awData.raw_status || awData.status || 'Unknown',
+            status_date: awData.status_date || awData.statusDate || new Date(1900, 0, 1).toISOString(),
+            estimated_date: awData.estimated_date || awData.estimatedDate || null,
+            is_from_aw: awData.is_from_aw !== undefined ? awData.is_from_aw : true
+            // ❌ NO last_updated - your schema doesn't have this column
+        };
+        
         const { error } = await client
             .from('aw_data')
-            .upsert({ job_number: jobNumber, ...awData }, { onConflict: 'job_number' });
+            .upsert(dataToSave, { 
+                onConflict: 'job_number',
+                ignoreDuplicates: false 
+            });
         
-        if (error) throw error;
+        if (error) {
+            console.error('❌ Error saving AW data:', error);
+            return false;
+        }
+        
         console.log(`✅ AW data for ${jobNumber} saved to Supabase`);
         return true;
     } catch (error) {
@@ -214,16 +237,30 @@ async function supabaseSaveAWData(jobNumber, awData) {
 async function supabaseSaveMultipleAWData(awDataMap) {
     try {
         const client = initSupabase();
+        
+        // ⭐ Match your database schema exactly
         const awArray = Object.entries(awDataMap).map(([jobNumber, data]) => ({
             job_number: jobNumber,
-            ...data
+            status: data.status || data.raw_status || 'Unknown',
+            raw_status: data.raw_status || data.status || 'Unknown',
+            status_date: data.status_date || data.statusDate || new Date(1900, 0, 1).toISOString(),
+            estimated_date: data.estimated_date || data.estimatedDate || null,
+            is_from_aw: data.is_from_aw !== undefined ? data.is_from_aw : true
+            // ❌ NO last_updated - your schema doesn't have this column
         }));
         
         const { error } = await client
             .from('aw_data')
-            .upsert(awArray, { onConflict: 'job_number' });
+            .upsert(awArray, { 
+                onConflict: 'job_number',
+                ignoreDuplicates: false 
+            });
         
-        if (error) throw error;
+        if (error) {
+            console.error('❌ Error saving AW data:', error);
+            return false;
+        }
+        
         console.log(`✅ ${awArray.length} AW records saved to Supabase`);
         return true;
     } catch (error) {
@@ -489,13 +526,42 @@ async function supabaseSyncAllData() {
         }
         
         // Load AW data
-        if (awData) {
-            awData.forEach(aw => {
-                const jobNumber = aw.job_number;
-                awData[jobNumber] = convertSnakeToCamel(aw);
-            });
-            console.log(`✅ Loaded ${awData.length} AW records from Supabase`);
+// supabase.js - FIXED AW data loading in supabaseSyncAllData
+
+// Load AW data
+if (awData) {
+    console.log(`📊 Loading ${awData.length} AW records from Supabase...`);
+    awData.forEach(aw => {
+        const jobNumber = aw.job_number;
+        // Convert from snake to camel - match your schema
+        awData[jobNumber] = {
+            status: aw.status || 'Unknown',
+            rawStatus: aw.raw_status || aw.status || 'Unknown',
+            statusDate: aw.status_date || new Date(1900, 0, 1).toISOString(),
+            estimatedDate: aw.estimated_date || null,
+            isFromAW: aw.is_from_aw !== undefined ? aw.is_from_aw : true
+            // ❌ NO lastUpdated - your schema doesn't have this
+        };
+        
+        // ⭐ Also update the job if it exists
+        const jobId = findJobIdByNumber(jobNumber);
+        if (jobId && jobDatabase[jobId]) {
+            jobDatabase[jobId].awStatus = aw.status || 'Unknown';
+            jobDatabase[jobId].rawAWStatus = aw.raw_status || aw.status || 'Unknown';
+            jobDatabase[jobId].status = aw.status || 'Unknown';
+            jobDatabase[jobId].statusDate = aw.status_date || new Date(1900, 0, 1).toISOString();
+            jobDatabase[jobId].estimatedDate = aw.estimated_date || null;
+            
+            if (plDatabase[jobId]) {
+                plDatabase[jobId].prepressStatus = aw.status || 'Unknown';
+                plDatabase[jobId].rawAWStatus = aw.raw_status || aw.status || 'Unknown';
+                plDatabase[jobId].statusDate = aw.status_date || new Date(1900, 0, 1).toISOString();
+                plDatabase[jobId].estimatedDate = aw.estimated_date || null;
+            }
         }
+    });
+    console.log(`✅ Loaded ${awData.length} AW records from Supabase`);
+}
         
         // Load schedules
         if (schedules) {
