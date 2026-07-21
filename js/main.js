@@ -109,10 +109,332 @@ async function initializeApp() {
     // STEP 2: Setup auto-save after data loads
     // ============================================================
     setupAutoSaveTriggers();
-    
+        // THIS LINE TO ENABLE THE FLUSH BUTTON
+        initEmergencyFlush();
+
     console.log('Application initialized successfully');
 }
+// ============================================================
+// EMERGENCY FLUSH - Clear all data from database
+// ============================================================
 
+// Add this to main.js or create a separate file
+
+function setupEmergencyFlush() {
+    const flushBtn = document.getElementById('emergency-flush-btn');
+    if (!flushBtn) return;
+    
+    // Show the button (hidden by default for safety)
+    // You can remove the style="display:none" from HTML or use this:
+    // flushBtn.style.display = 'inline-block';
+    
+    flushBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        showFlushConfirmation();
+    });
+}
+
+function showFlushConfirmation() {
+    // Check if modal already exists
+    let overlay = document.getElementById('flush-modal-overlay');
+    if (overlay) {
+        overlay.classList.add('active');
+        return;
+    }
+    
+    overlay = document.createElement('div');
+    overlay.id = 'flush-modal-overlay';
+    overlay.className = 'flush-modal-overlay';
+    
+    overlay.innerHTML = `
+        <div class="flush-modal">
+            <div class="flush-icon">⚠️</div>
+            <h2>Emergency Flush</h2>
+            <p>This will <strong>permanently delete ALL data</strong> from the database:</p>
+            <ul style="text-align:left; color:#6c757d; font-size:13px; margin:8px 0 12px 20px;">
+                <li>All jobs</li>
+                <li>All PL data</li>
+                <li>All AW data</li>
+                <li>All schedules</li>
+                <li>All speeds</li>
+            </ul>
+            <div class="warning-text">
+                ⚠️ This action <strong>CANNOT BE UNDONE</strong>!
+            </div>
+            <div class="flush-input-group">
+                <label>Type <strong>FLUSH</strong> to confirm:</label>
+                <input type="text" id="flush-confirm-input" placeholder="Type FLUSH here..." autocomplete="off">
+            </div>
+            <div class="flush-buttons">
+                <button class="btn-flush-cancel" id="flush-cancel">Cancel</button>
+                <button class="btn-flush-confirm" id="flush-confirm" disabled>Flush All Data</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    overlay.classList.add('active');
+    
+    // Setup event listeners
+    const confirmInput = document.getElementById('flush-confirm-input');
+    const confirmBtn = document.getElementById('flush-confirm');
+    const cancelBtn = document.getElementById('flush-cancel');
+    
+    confirmInput.addEventListener('input', function() {
+        const isValid = this.value.trim().toUpperCase() === 'FLUSH';
+        confirmBtn.disabled = !isValid;
+        if (isValid) {
+            this.classList.remove('error');
+        } else {
+            this.classList.add('error');
+        }
+    });
+    
+    confirmInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !confirmBtn.disabled) {
+            executeFlush();
+        }
+    });
+    
+    cancelBtn.addEventListener('click', closeFlushModal);
+    confirmBtn.addEventListener('click', executeFlush);
+    
+    // Close on overlay click
+    overlay.addEventListener('click', function(e) {
+        if (e.target === this) closeFlushModal();
+    });
+    
+    // Focus the input
+    setTimeout(() => confirmInput.focus(), 100);
+}
+
+function closeFlushModal() {
+    const overlay = document.getElementById('flush-modal-overlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 300);
+    }
+}
+
+async function executeFlush() {
+    const confirmBtn = document.getElementById('flush-confirm');
+    const confirmInput = document.getElementById('flush-confirm-input');
+    
+    // Double-check confirmation
+    if (confirmInput.value.trim().toUpperCase() !== 'FLUSH') {
+        return;
+    }
+    
+    // Disable button and show progress
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Flushing...';
+    
+    // Show progress in modal
+    const modal = document.querySelector('.flush-modal');
+    const progressDiv = document.createElement('div');
+    progressDiv.className = 'flush-progress';
+    progressDiv.innerHTML = `
+        <div class="spinner"></div>
+        <div class="progress-text">Deleting all data...</div>
+    `;
+    
+    // Replace content with progress
+    const contentNodes = modal.querySelectorAll('.flush-icon, h2, p, ul, .warning-text, .flush-input-group, .flush-buttons');
+    contentNodes.forEach(node => node.style.display = 'none');
+    modal.appendChild(progressDiv);
+    
+    try {
+        // Execute the flush
+        const result = await performFlush();
+        
+        // Show success
+        progressDiv.innerHTML = `
+            <div style="color: #28a745; font-size: 48px; margin-bottom: 12px;">✅</div>
+            <div class="flush-success">All data flushed successfully!</div>
+            <div style="margin-top: 12px; color: #6c757d; font-size: 13px;">
+                ${result.jobsDeleted} jobs deleted<br>
+                ${result.schedulesDeleted} schedules deleted<br>
+                ${result.speedsDeleted} speeds deleted<br>
+                ${result.plDeleted} PL records deleted<br>
+                ${result.awDeleted} AW records deleted
+            </div>
+            <button class="btn-flush-cancel" id="flush-done" style="margin-top: 16px; padding: 10px 30px;">
+                Done
+            </button>
+        `;
+        
+        document.getElementById('flush-done').addEventListener('click', function() {
+            closeFlushModal();
+            // Reload the page to reset state
+            if (confirm('The page will reload to refresh all data. Continue?')) {
+                window.location.reload();
+            }
+        });
+        
+        showNotification('✅ All data flushed successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Flush error:', error);
+        progressDiv.innerHTML = `
+            <div style="color: #dc3545; font-size: 48px; margin-bottom: 12px;">❌</div>
+            <div class="flush-error">Error: ${error.message}</div>
+            <button class="btn-flush-cancel" id="flush-retry" style="margin-top: 16px; padding: 10px 30px;">
+                Try Again
+            </button>
+        `;
+        
+        document.getElementById('flush-retry').addEventListener('click', function() {
+            closeFlushModal();
+            setTimeout(showFlushConfirmation, 300);
+        });
+        
+        showNotification('❌ Flush failed: ' + error.message, 'error');
+    }
+}
+
+async function performFlush() {
+    const client = initSupabase();
+    if (!client) throw new Error('Supabase client not initialized');
+    
+    const results = {
+        jobsDeleted: 0,
+        schedulesDeleted: 0,
+        speedsDeleted: 0,
+        plDeleted: 0,
+        awDeleted: 0
+    };
+    
+    // 1. Delete from child tables first (FOREIGN KEY constraints)
+    console.log('🗑️ Deleting schedules...');
+    const { error: scheduleError } = await client
+        .from('job_schedule')
+        .delete()
+        .neq('job_id', 'non-existent-id'); // Delete all
+    
+    if (scheduleError) throw new Error('Failed to delete schedules: ' + scheduleError.message);
+    results.schedulesDeleted = 'all';
+    
+    console.log('🗑️ Deleting speeds...');
+    const { error: speedError } = await client
+        .from('job_speeds')
+        .delete()
+        .neq('job_id', 'non-existent-id');
+    
+    if (speedError) throw new Error('Failed to delete speeds: ' + speedError.message);
+    results.speedsDeleted = 'all';
+    
+    // 2. Delete parent tables
+    console.log('🗑️ Deleting jobs...');
+    const { error: jobsError } = await client
+        .from('jobs')
+        .delete()
+        .neq('job_id', 'non-existent-id');
+    
+    if (jobsError) throw new Error('Failed to delete jobs: ' + jobsError.message);
+    results.jobsDeleted = 'all';
+    
+    console.log('🗑️ Deleting PL data...');
+    const { error: plError } = await client
+        .from('pl_database')
+        .delete()
+        .neq('job_id', 'non-existent-id');
+    
+    if (plError) throw new Error('Failed to delete PL data: ' + plError.message);
+    results.plDeleted = 'all';
+    
+    console.log('🗑️ Deleting AW data...');
+    const { error: awError } = await client
+        .from('aw_data')
+        .delete()
+        .neq('job_number', 'non-existent-id');
+    
+    if (awError) throw new Error('Failed to delete AW data: ' + awError.message);
+    results.awDeleted = 'all';
+    
+    // 3. Reset upload status (keep the users but reset status)
+    console.log('🔄 Resetting upload status...');
+    const { error: uploadError } = await client
+        .from('upload_status')
+        .update({ 
+            status: 'pending',
+            last_updated: null,
+            file_name: null,
+            file_size: null,
+            job_count: 0
+        })
+        .neq('uploader', 'non-existent-id');
+    
+    if (uploadError) {
+        console.warn('⚠️ Could not reset upload status:', uploadError.message);
+    }
+    
+    // 4. Re-insert default data
+    console.log('📥 Re-inserting default data...');
+    try {
+        await client
+            .from('upload_status')
+            .upsert([
+                { uploader: 'mahmoud', status: 'pending' },
+                { uploader: 'raed', status: 'pending' },
+                { uploader: 'rabia', status: 'pending' },
+                { uploader: 'qasem', status: 'pending' }
+            ], { onConflict: 'uploader' });
+    } catch (e) {
+        console.warn('⚠️ Could not re-insert upload status:', e.message);
+    }
+    
+    try {
+        await client
+            .from('system_config')
+            .upsert([
+                { config_key: 'default_speed', config_value: '200', description: 'Default machine speed in m/min' },
+                { config_key: 'default_setup', config_value: '120', description: 'Default setup time in minutes' },
+                { config_key: 'upload_validity_minutes', config_value: '1440', description: 'Upload validity period in minutes (24 hours)' },
+                { config_key: 'max_printed_jobs', config_value: '3', description: 'Maximum number of printed jobs to keep on timeline' },
+                { config_key: 'default_priority', config_value: '999', description: 'Default priority for jobs without priority' }
+            ], { onConflict: 'config_key' });
+    } catch (e) {
+        console.warn('⚠️ Could not re-insert system config:', e.message);
+    }
+    
+    // 5. Clear local data
+    console.log('🧹 Clearing local data...');
+    Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
+    Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
+    Object.keys(awData).forEach(key => delete awData[key]);
+    Object.keys(jobSchedule).forEach(key => delete jobSchedule[key]);
+    Object.keys(jobSpeeds).forEach(key => delete jobSpeeds[key]);
+    
+    console.log('✅ Flush complete!');
+    return results;
+}
+
+// ============================================================
+// INITIALIZE FLUSH BUTTON
+// ============================================================
+// Call this from initializeApp() or DOMContentLoaded
+
+function initEmergencyFlush() {
+    // Show the button (if hidden)
+    const flushBtn = document.getElementById('emergency-flush-btn');
+    if (flushBtn) {
+        flushBtn.style.display = 'inline-block';
+        flushBtn.title = '⚠️ Emergency Flush - Delete ALL data';
+    }
+    
+    setupEmergencyFlush();
+    console.log('⚠️ Emergency Flush button initialized');
+}
+
+// Uncomment this line when you're ready to enable the button
+// document.addEventListener('DOMContentLoaded', initEmergencyFlush);
+
+// Expose functions to window
+window.setupEmergencyFlush = setupEmergencyFlush;
+window.initEmergencyFlush = initEmergencyFlush;
+window.performFlush = performFlush;
+window.showFlushConfirmation = showFlushConfirmation;
+window.closeFlushModal = closeFlushModal;
 // ============================================================
 // REBUILD TIMELINES FROM SCHEDULES
 // ============================================================
