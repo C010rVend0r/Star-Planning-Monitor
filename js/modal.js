@@ -1,10 +1,26 @@
 // script-modal.js
 // ============================================================
-// JOB DETAILS MODAL
+// JOB DETAILS MODAL - WITH START/END TIME EDITING
 // ============================================================
 
 let currentModalJobId = null;
 
+// ============================================================
+// FORMAT DATE FOR DATETIME-LOCAL INPUT
+// ============================================================
+function formatDateTimeLocal(date) {
+    if (!date || isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// ============================================================
+// SETUP MODAL EVENT LISTENERS
+// ============================================================
 function setupModalEventListeners() {
     console.log('Setting up modal event listeners...');
     
@@ -23,6 +39,19 @@ function setupModalEventListeners() {
     const removeBtn = document.getElementById('modal-remove-from-timeline');
     if (removeBtn) removeBtn.addEventListener('click', removeJobFromTimelineFromModal);
     
+    // ⭐ Apply Time button
+    const applyTimeBtn = document.getElementById('modal-apply-time-btn');
+    if (applyTimeBtn) {
+        applyTimeBtn.addEventListener('click', function() {
+            if (!currentModalJobId) {
+                showNotification('❌ No job selected', 'error');
+                return;
+            }
+            // Save just the time changes
+            saveJobTimeOnly();
+        });
+    }
+    
     const modal = document.getElementById('job-details-modal');
     if (modal) {
         modal.addEventListener('click', function(e) {
@@ -38,6 +67,9 @@ function setupModalEventListeners() {
     });
 }
 
+// ============================================================
+// SETUP MODAL CLICK TRIGGERS
+// ============================================================
 function setupModalClickTriggers() {
     console.log('Setting up modal click triggers...');
     
@@ -91,6 +123,9 @@ function setupModalClickTriggers() {
     });
 }
 
+// ============================================================
+// ADD MODAL INSTRUCTIONS
+// ============================================================
 function addModalInstructions() {
     const style = document.createElement('style');
     style.textContent = `
@@ -116,8 +151,9 @@ function addModalInstructions() {
     document.head.appendChild(style);
 }
 
-// In modal.js - update openJobDetailsModal function
-
+// ============================================================
+// OPEN JOB DETAILS MODAL
+// ============================================================
 function openJobDetailsModal(jobId) {
     console.log('Opening modal for job:', jobId);
     
@@ -217,13 +253,12 @@ function openJobDetailsModal(jobId) {
     }
     
     // ============================================================
-    // ADD ESTIMATED DATE HANDLING
+    // ESTIMATED DATE HANDLING
     // ============================================================
     const estimatedDateInput = document.getElementById('modal-estimated-date');
     const estimatedContainer = document.getElementById('modal-estimated-date-container');
     
     if (estimatedDateInput && estimatedContainer) {
-        // Check if estimated date should be shown
         const showEstimated = awStatus === '8. Repro: Plate Making' || awStatus === '5. Working on Cromalin';
         
         if (showEstimated && jobData.estimatedDate) {
@@ -263,22 +298,46 @@ function openJobDetailsModal(jobId) {
     if (removeBtn) removeBtn.style.display = isOnTimeline ? 'inline-block' : 'none';
     if (addBtn) addBtn.style.display = isOnTimeline ? 'none' : 'inline-block';
     
-    // Start and end times
-    const startTimeEl = document.getElementById('modal-start-time');
-    const endTimeEl = document.getElementById('modal-end-time');
+    // ============================================================
+    // START AND END TIMES - WITH INPUT FIELDS
+    // ============================================================
+    const startTimeInput = document.getElementById('modal-start-time-input');
+    const endTimeInput = document.getElementById('modal-end-time-input');
     const durationEl = document.getElementById('modal-duration');
+    const applyTimeBtn = document.getElementById('modal-apply-time-btn');
     
     if (jobSchedule[jobId]) {
         const startTime = new Date(jobSchedule[jobId].startTime);
         const endTime = new Date(jobSchedule[jobId].endTime);
-        if (startTimeEl) startTimeEl.textContent = formatDateTime(startTime);
-        if (endTimeEl) endTimeEl.textContent = formatDateTime(endTime);
+        
+        // Format for datetime-local input
+        if (startTimeInput) {
+            startTimeInput.value = formatDateTimeLocal(startTime);
+            startTimeInput.disabled = false;
+        }
+        if (endTimeInput) {
+            endTimeInput.value = formatDateTimeLocal(endTime);
+            endTimeInput.disabled = false;
+        }
+        if (applyTimeBtn) {
+            applyTimeBtn.style.display = 'inline-block';
+        }
+        
         const duration = Math.round((endTime - startTime) / 60000);
         if (durationEl) durationEl.textContent = `${duration} minutes`;
     } else {
-        if (startTimeEl) startTimeEl.textContent = 'Not scheduled';
-        if (endTimeEl) endTimeEl.textContent = 'Not scheduled';
-        if (durationEl) durationEl.textContent = 'N/A';
+        if (startTimeInput) {
+            startTimeInput.value = '';
+            startTimeInput.disabled = true;
+        }
+        if (endTimeInput) {
+            endTimeInput.value = '';
+            endTimeInput.disabled = true;
+        }
+        if (applyTimeBtn) {
+            applyTimeBtn.style.display = 'none';
+        }
+        if (durationEl) durationEl.textContent = 'Not scheduled';
     }
     
     // Additional PL data
@@ -313,6 +372,9 @@ function openJobDetailsModal(jobId) {
     }
 }
 
+// ============================================================
+// CLOSE JOB DETAILS MODAL
+// ============================================================
 function closeJobDetailsModal() {
     const modal = document.getElementById('job-details-modal');
     if (modal) modal.classList.remove('active');
@@ -321,9 +383,107 @@ function closeJobDetailsModal() {
         el.classList.remove('job-selected', 'feed-job-selected');
     });
     currentModalJobId = null;
+    
+    // Reset time inputs
+    const startInput = document.getElementById('modal-start-time-input');
+    const endInput = document.getElementById('modal-end-time-input');
+    if (startInput) startInput.value = '';
+    if (endInput) endInput.value = '';
 }
 
-function saveJobDetailsFromModal() {
+// ============================================================
+// SAVE JOB TIME ONLY (for the Apply Time button)
+// ============================================================
+async function saveJobTimeOnly() {
+    if (!currentModalJobId) {
+        showNotification('❌ No job selected', 'error');
+        return;
+    }
+    
+    const jobId = currentModalJobId;
+    const startTimeInput = document.getElementById('modal-start-time-input');
+    const endTimeInput = document.getElementById('modal-end-time-input');
+    
+    if (!startTimeInput || !endTimeInput || !startTimeInput.value || !endTimeInput.value) {
+        showNotification('⚠️ Job is not on a timeline', 'warning');
+        return;
+    }
+    
+    const newStartTime = new Date(startTimeInput.value).getTime();
+    const newEndTime = new Date(endTimeInput.value).getTime();
+    
+    if (isNaN(newStartTime) || isNaN(newEndTime) || newEndTime <= newStartTime) {
+        showNotification('⚠️ Invalid time range', 'warning');
+        return;
+    }
+    
+    // Check if job is on timeline
+    const timelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
+    if (!timelineJob) {
+        showNotification('⚠️ Job is not on a timeline', 'warning');
+        return;
+    }
+    
+    try {
+        // Update schedule in memory
+        if (jobSchedule[jobId]) {
+            jobSchedule[jobId].startTime = newStartTime;
+            jobSchedule[jobId].endTime = newEndTime;
+            
+            // Save to Supabase
+            const scheduleData = {
+                start_time: new Date(newStartTime).toISOString(),
+                end_time: new Date(newEndTime).toISOString(),
+                timeline_id: jobSchedule[jobId].timelineId,
+                is_printed: jobSchedule[jobId].isPrinted || false
+            };
+            
+            const saved = await supabaseSaveSchedule(jobId, scheduleData);
+            if (saved) {
+                console.log(`✅ Schedule saved to Supabase for ${jobId}`);
+            } else {
+                // Try batch save as fallback
+                const scheduleMap = {};
+                scheduleMap[jobId] = scheduleData;
+                await supabaseSaveMultipleSchedules(scheduleMap);
+            }
+            
+            // Update the timeline display
+            updateJobTimeDisplay(jobId);
+            
+            // Reschedule the timeline
+            const timeline = timelineJob.parentElement;
+            if (timeline) {
+                rescheduleTimelineJobs(timeline.id, true);
+                debouncedScaleTimeline(timeline.id);
+                updateAllJobColors();
+                applySmartZoom();
+            }
+            
+            // Update duration display
+            const durationEl = document.getElementById('modal-duration');
+            if (durationEl) {
+                const duration = Math.round((newEndTime - newStartTime) / 60000);
+                durationEl.textContent = `${duration} minutes`;
+            }
+            
+            // Trigger auto-save
+            if (typeof scheduleAutoSave === 'function') {
+                scheduleAutoSave();
+            }
+            
+            showNotification(`✅ Time updated: ${new Date(newStartTime).toLocaleTimeString()} → ${new Date(newEndTime).toLocaleTimeString()}`, 'success');
+        }
+    } catch (error) {
+        console.error('❌ Error saving time:', error);
+        showNotification('❌ Failed to save time: ' + error.message, 'error');
+    }
+}
+
+// ============================================================
+// SAVE JOB DETAILS FROM MODAL
+// ============================================================
+async function saveJobDetailsFromModal() {
     if (!currentModalJobId) {
         showNotification('❌ No job selected', 'error');
         return;
@@ -440,18 +600,15 @@ function saveJobDetailsFromModal() {
     // ⭐ CRITICAL: If job is marked as Complete, update the schedule to mark it as printed
     if (isNowComplete && isOnTimeline && jobSchedule[jobId]) {
         jobSchedule[jobId].isPrinted = true;
-        // Also update the end time to now if it hasn't been set
         if (jobSchedule[jobId].endTime > Date.now()) {
             jobSchedule[jobId].endTime = Date.now();
         }
         console.log(`✅ Job ${jobId} marked as printed in schedule`);
         
-        // Add printed class to the job element
         if (timelineJob) {
             timelineJob.classList.add('job-printed');
             timelineJob.setAttribute('draggable', 'false');
             
-            // Disable inputs
             const inputs = timelineJob.querySelectorAll('.job-editable-fields input');
             inputs.forEach(input => {
                 input.disabled = true;
@@ -468,7 +625,6 @@ function saveJobDetailsFromModal() {
         if (timeline) {
             const allPrinted = timeline.querySelectorAll('.job.job-printed');
             if (allPrinted.length > 1) {
-                // Keep only the most recent (this one) and remove others
                 const toRemove = Array.from(allPrinted).filter(job => 
                     job.getAttribute('data-job-id') !== jobId
                 );
@@ -525,6 +681,89 @@ function saveJobDetailsFromModal() {
         }
     }
     
+    // ============================================================
+    // HANDLE START/END TIME UPDATES
+    // ============================================================
+    const startTimeInput = document.getElementById('modal-start-time-input');
+    const endTimeInput = document.getElementById('modal-end-time-input');
+    
+    if (startTimeInput && endTimeInput && startTimeInput.value && endTimeInput.value) {
+        const newStartTime = new Date(startTimeInput.value).getTime();
+        const newEndTime = new Date(endTimeInput.value).getTime();
+        
+        if (!isNaN(newStartTime) && !isNaN(newEndTime) && newEndTime > newStartTime) {
+            // Update the schedule
+            if (jobSchedule[jobId]) {
+                jobSchedule[jobId].startTime = newStartTime;
+                jobSchedule[jobId].endTime = newEndTime;
+                
+                // ⭐ CRITICAL: Save schedule to Supabase immediately
+                try {
+                    const scheduleData = {
+                        start_time: new Date(newStartTime).toISOString(),
+                        end_time: new Date(newEndTime).toISOString(),
+                        timeline_id: jobSchedule[jobId].timelineId,
+                        is_printed: jobSchedule[jobId].isPrinted || false
+                    };
+                    
+                    const saved = await supabaseSaveSchedule(jobId, scheduleData);
+                    if (saved) {
+                        console.log(`✅ Schedule saved to Supabase for ${jobId}`);
+                    } else {
+                        // Try batch save as fallback
+                        const scheduleMap = {};
+                        scheduleMap[jobId] = scheduleData;
+                        await supabaseSaveMultipleSchedules(scheduleMap);
+                    }
+                } catch (error) {
+                    console.error('❌ Error saving schedule:', error);
+                    // Try batch save as fallback
+                    try {
+                        const scheduleMap = {};
+                        scheduleMap[jobId] = {
+                            start_time: new Date(newStartTime).toISOString(),
+                            end_time: new Date(newEndTime).toISOString(),
+                            timeline_id: jobSchedule[jobId].timelineId,
+                            is_printed: jobSchedule[jobId].isPrinted || false
+                        };
+                        await supabaseSaveMultipleSchedules(scheduleMap);
+                    } catch (e) {
+                        console.error('❌ Fallback save also failed:', e);
+                    }
+                }
+                
+                // Update the timeline display
+                const updatedTimelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
+                if (updatedTimelineJob) {
+                    updateJobTimeDisplay(jobId);
+                }
+                
+                // Reschedule the timeline
+                const timeline = updatedTimelineJob?.parentElement;
+                if (timeline) {
+                    rescheduleTimelineJobs(timeline.id, true);
+                    debouncedScaleTimeline(timeline.id);
+                    updateAllJobColors();
+                    applySmartZoom();
+                }
+                
+                // Update duration display
+                const durationEl = document.getElementById('modal-duration');
+                if (durationEl) {
+                    const duration = Math.round((newEndTime - newStartTime) / 60000);
+                    durationEl.textContent = `${duration} minutes`;
+                }
+                
+                // Trigger auto-save
+                if (typeof scheduleAutoSave === 'function') {
+                    scheduleAutoSave();
+                }
+                
+                console.log(`✅ Updated schedule for ${jobId}: ${new Date(newStartTime).toLocaleString()} → ${new Date(newEndTime).toLocaleString()}`);
+            }
+        }
+    }
+    
     // Update feed item
     const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
     if (feedItem) {
@@ -562,15 +801,12 @@ function saveJobDetailsFromModal() {
     // ⭐ CRITICAL: Force immediate save to Supabase when job is marked as Complete
     if (isNowComplete) {
         console.log('🔄 Force saving completed job to Supabase...');
-        // Save immediately instead of waiting for auto-save
         setTimeout(async () => {
             try {
-                // Save job data
                 const jobDataToSave = convertCamelToSnake(jobData);
                 jobDataToSave.job_id = jobId;
                 await supabaseSaveJob(jobId, jobDataToSave);
                 
-                // Save schedule with is_printed = true
                 if (jobSchedule[jobId]) {
                     const scheduleData = {
                         start_time: new Date(jobSchedule[jobId].startTime).toISOString(),
@@ -588,6 +824,9 @@ function saveJobDetailsFromModal() {
     }
 }
 
+// ============================================================
+// ADD JOB TO TIMELINE FROM MODAL
+// ============================================================
 function addJobToTimelineFromModal() {
     if (!currentModalJobId) {
         showNotification('❌ No job selected', 'error');
@@ -631,14 +870,28 @@ function addJobToTimelineFromModal() {
     if (removeBtn) removeBtn.style.display = 'inline-block';
     if (addBtn) addBtn.style.display = 'none';
     
+    // Enable time inputs
+    const startTimeInput = document.getElementById('modal-start-time-input');
+    const endTimeInput = document.getElementById('modal-end-time-input');
+    const applyTimeBtn = document.getElementById('modal-apply-time-btn');
+    
     if (jobSchedule[jobId]) {
         const startTime = new Date(jobSchedule[jobId].startTime);
         const endTime = new Date(jobSchedule[jobId].endTime);
-        const startTimeEl = document.getElementById('modal-start-time');
-        const endTimeEl = document.getElementById('modal-end-time');
+        
+        if (startTimeInput) {
+            startTimeInput.value = formatDateTimeLocal(startTime);
+            startTimeInput.disabled = false;
+        }
+        if (endTimeInput) {
+            endTimeInput.value = formatDateTimeLocal(endTime);
+            endTimeInput.disabled = false;
+        }
+        if (applyTimeBtn) {
+            applyTimeBtn.style.display = 'inline-block';
+        }
+        
         const durationEl = document.getElementById('modal-duration');
-        if (startTimeEl) startTimeEl.textContent = formatDateTime(startTime);
-        if (endTimeEl) endTimeEl.textContent = formatDateTime(endTime);
         const duration = Math.round((endTime - startTime) / 60000);
         if (durationEl) durationEl.textContent = `${duration} minutes`;
     }
@@ -656,6 +909,9 @@ function addJobToTimelineFromModal() {
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
 }
 
+// ============================================================
+// REMOVE JOB FROM TIMELINE FROM MODAL
+// ============================================================
 function removeJobFromTimelineFromModal() {
     if (!currentModalJobId) {
         showNotification('❌ No job selected', 'error');
@@ -690,12 +946,26 @@ function removeJobFromTimelineFromModal() {
     const addBtn = document.getElementById('modal-add-to-timeline');
     if (removeBtn) removeBtn.style.display = 'none';
     if (addBtn) addBtn.style.display = 'inline-block';
-    const startTimeEl = document.getElementById('modal-start-time');
-    const endTimeEl = document.getElementById('modal-end-time');
+    
+    // Disable time inputs
+    const startTimeInput = document.getElementById('modal-start-time-input');
+    const endTimeInput = document.getElementById('modal-end-time-input');
+    const applyTimeBtn = document.getElementById('modal-apply-time-btn');
+    
+    if (startTimeInput) {
+        startTimeInput.value = '';
+        startTimeInput.disabled = true;
+    }
+    if (endTimeInput) {
+        endTimeInput.value = '';
+        endTimeInput.disabled = true;
+    }
+    if (applyTimeBtn) {
+        applyTimeBtn.style.display = 'none';
+    }
+    
     const durationEl = document.getElementById('modal-duration');
-    if (startTimeEl) startTimeEl.textContent = 'Not scheduled';
-    if (endTimeEl) endTimeEl.textContent = 'Not scheduled';
-    if (durationEl) durationEl.textContent = 'N/A';
+    if (durationEl) durationEl.textContent = 'Not scheduled';
     
     const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
     if (feedItem) {
@@ -710,7 +980,9 @@ function removeJobFromTimelineFromModal() {
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
 }
 
-// Add CSS for modal
+// ============================================================
+// ADD CSS FOR MODAL
+// ============================================================
 const styleForModal = document.createElement('style');
 styleForModal.textContent = `
     .feed-job-selected {
@@ -718,18 +990,93 @@ styleForModal.textContent = `
         border-left: 4px solid #1976d2 !important;
         box-shadow: 0 2px 12px rgba(25, 118, 210, 0.2) !important;
     }
+    
+    /* Time input styles */
+    #modal-start-time-input,
+    #modal-end-time-input {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 6px 10px;
+        border-radius: 4px;
+        border: 1px solid #ced4da;
+        background: white;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    #modal-start-time-input:disabled,
+    #modal-end-time-input:disabled {
+        background: #e9ecef;
+        color: #6c757d;
+        cursor: not-allowed;
+    }
+    
+    #modal-start-time-input:focus,
+    #modal-end-time-input:focus {
+        border-color: #3498db;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
+    }
+    
+    .modal-btn-sm {
+        padding: 6px 12px;
+        font-size: 12px;
+        border-radius: 4px;
+        border: 1px solid #3498db;
+        background: #3498db;
+        color: white;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    
+    .modal-btn-sm:hover {
+        background: #2980b9;
+        border-color: #2980b9;
+    }
+    
+    .modal-time-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+    
+    .modal-time-row .modal-field {
+        flex: 1;
+        margin-bottom: 0;
+    }
+    
+    .modal-time-row .modal-field label {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 2px;
+    }
+    
+    .modal-time-row .modal-field input {
+        width: 100%;
+    }
 `;
 document.head.appendChild(styleForModal);
 
-// Setup modal triggers
+// ============================================================
+// SETUP MODAL TRIGGERS
+// ============================================================
 document.addEventListener('DOMContentLoaded', function() {
     setupModalEventListeners();
     setupModalClickTriggers();
     addModalInstructions();
 });
 
+// ============================================================
+// EXPOSE FUNCTIONS TO WINDOW
+// ============================================================
 window.openJobDetailsModal = openJobDetailsModal;
 window.closeJobDetailsModal = closeJobDetailsModal;
 window.saveJobDetailsFromModal = saveJobDetailsFromModal;
+window.saveJobTimeOnly = saveJobTimeOnly;
 window.addJobToTimelineFromModal = addJobToTimelineFromModal;
 window.removeJobFromTimelineFromModal = removeJobFromTimelineFromModal;
+window.formatDateTimeLocal = formatDateTimeLocal;
+
+console.log('✅ modal.js loaded - Complete with time editing and Supabase save');
