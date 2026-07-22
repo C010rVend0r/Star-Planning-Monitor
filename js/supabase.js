@@ -300,22 +300,32 @@ async function supabaseSaveSchedule(jobId, scheduleData) {
     }
 }
 
+// supabase.js - Verify this function
+
 async function supabaseSaveMultipleSchedules(schedules) {
     try {
         const client = initSupabase();
         const scheduleArray = Object.entries(schedules).map(([jobId, data]) => ({
             job_id: jobId,
-            ...data
+            start_time: data.start_time || data.startTime,
+            end_time: data.end_time || data.endTime,
+            timeline_id: data.timeline_id || data.timelineId,
+            is_printed: data.is_printed || data.isPrinted || false
         }));
         
         const { error } = await client
             .from('job_schedule')
             .upsert(scheduleArray, { onConflict: 'job_id' });
         
-        if (error) throw error;
+        if (error) {
+            console.error('❌ Error saving schedules:', error);
+            return false;
+        }
+        
+        console.log(`✅ ${scheduleArray.length} schedules saved to Supabase`);
         return true;
     } catch (error) {
-        console.error('❌ Error saving schedules:', error);
+        console.error('❌ Error saving multiple schedules:', error);
         return false;
     }
 }
@@ -932,6 +942,8 @@ function scheduleAutoSave() {
     }, 5000);
 }
 
+// supabase.js - REPLACE autoSaveAllData function
+
 async function autoSaveAllData() {
     console.log('💾 Auto-saving data to Supabase...');
     
@@ -953,18 +965,27 @@ async function autoSaveAllData() {
             }
         }
         
-        // ⭐ Save schedules - make sure is_printed is saved correctly
+        // ⭐ CRITICAL FIX: Save schedules with proper data
         const schedulesToSave = {};
         for (const [jobId, data] of Object.entries(jobSchedule)) {
+            if (!data.startTime || !data.endTime) continue;
+            
             schedulesToSave[jobId] = {
                 start_time: new Date(data.startTime).toISOString(),
                 end_time: new Date(data.endTime).toISOString(),
-                timeline_id: data.timelineId,
-                is_printed: data.isPrinted || false  // ⭐ This must be saved
+                timeline_id: data.timelineId || '',
+                is_printed: data.isPrinted || false
             };
         }
+        
         if (Object.keys(schedulesToSave).length > 0) {
-            await supabaseSaveMultipleSchedules(schedulesToSave);
+            console.log(`💾 Saving ${Object.keys(schedulesToSave).length} schedules...`);
+            const success = await supabaseSaveMultipleSchedules(schedulesToSave);
+            if (success) {
+                console.log('✅ Schedules saved successfully');
+            } else {
+                console.warn('⚠️ Failed to save schedules');
+            }
         }
         
         // Save speeds
