@@ -61,6 +61,7 @@ async function initializeApp() {
         }, 50);
     }
     
+    
     // Initialize machine elements
     initializeMachineElements();
     
@@ -76,7 +77,27 @@ async function initializeApp() {
     // Initialize now indicators
     initializeNowIndicators();
     startJobTimeUpdates();
-    startDynamicTimeUpdates();
+// ============================================================
+// START DYNAMIC TIME UPDATES WITH AGGRESSIVE COMPLETION CHECK
+// ============================================================
+// Replace the existing startDynamicTimeUpdates() call with this:
+
+// Start dynamic time updates with aggressive completion checking
+startDynamicTimeUpdates();
+
+// Also run completion check every 10 seconds (in addition to the one in startDynamicTimeUpdates)
+setInterval(() => {
+    updateCompletedJobs();
+}, 10000);
+
+// Run an initial completion check after 3 seconds
+setTimeout(() => {
+    console.log('🔄 Running initial completion check...');
+    updateCompletedJobs();
+}, 3000);
+
+
+
     updateAllJobColors();
     updateStatistics();
     
@@ -104,6 +125,23 @@ async function initializeApp() {
     // Update real-time clock
     updateRealTimeIndicator();
     setInterval(updateRealTimeIndicator, 1000);
+    // After data loads, run an initial completion check
+setTimeout(() => {
+    console.log('🔄 Running initial completion check...');
+    updateCompletedJobs();
+}, 3000);
+
+// Also run it after any data sync
+if (typeof supabaseSyncAllData === 'function') {
+    const originalSync = supabaseSyncAllData;
+    supabaseSyncAllData = async function(...args) {
+        const result = await originalSync.apply(this, args);
+        setTimeout(() => {
+            updateCompletedJobs();
+        }, 1000);
+        return result;
+    };
+}
     
     // ============================================================
     // STEP 2: Setup auto-save after data loads
@@ -114,6 +152,7 @@ async function initializeApp() {
 
     console.log('Application initialized successfully');
 }
+
 // ============================================================
 // EMERGENCY FLUSH - Clear all data from database
 // ============================================================
