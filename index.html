@@ -184,127 +184,132 @@
         </aside>
     </div>
 
-    <!-- ============================================================
-    JOB DETAILS MODAL
-    ============================================================ -->
-    <div id="job-details-modal" class="job-modal">
-        <div class="job-modal-content">
-            <div class="job-modal-header">
-                <h2 id="modal-job-title">Job Details</h2>
-                <button class="job-modal-close" id="modal-close-btn">&times;</button>
-            </div>
-            <div class="job-modal-body">
-                <div class="modal-grid">
-                    <div class="modal-column">
-                        <!-- Basic Information -->
-                        <div class="modal-section">
-                            <h3>Basic Information</h3>
-                            <div class="modal-field">
-                                <label>Job Number</label>
-                                <input type="text" id="modal-job-number" class="modal-input" readonly>
-                            </div>
-                            <div class="modal-field">
-                                <label>Job Name</label>
-                                <input type="text" id="modal-job-name" class="modal-input">
-                            </div>
-                            <div class="modal-field">
-                                <label>Machine</label>
-                                <select id="modal-machine" class="modal-input">
-                                    <option value="">Not Assigned</option>
-                                    <option value="207">Machine 207</option>
-                                    <option value="208">Machine 208</option>
-                                    <option value="209">Machine 209</option>
-                                    <option value="210">Machine 210</option>
-                                    <option value="211">Machine 211</option>
-                                </select>
-                            </div>
+
+<!-- ============================================================
+JOB DETAILS MODAL
+============================================================ -->
+<div id="job-details-modal" class="job-modal">
+    <div class="job-modal-content">
+        <div class="job-modal-header">
+            <h2 id="modal-job-title">Job Details</h2>
+            <button class="job-modal-close" id="modal-close-btn">&times;</button>
+        </div>
+        <div class="job-modal-body">
+            <div class="modal-grid">
+                <div class="modal-column">
+                    <!-- Basic Information -->
+                    <div class="modal-section">
+                        <h3>Basic Information</h3>
+                        <div class="modal-field">
+                            <label>Job Number</label>
+                            <input type="text" id="modal-job-number" class="modal-input" readonly>
                         </div>
-                        <!-- Job Parameters -->
-                        <div class="modal-section">
-                            <h3>Job Parameters</h3>
-                            <div class="modal-field">
-                                <label>Setup Time (min)</label>
-                                <input type="number" id="modal-setup" class="modal-input" min="0" step="1">
-                            </div>
-                            <div class="modal-field">
-                                <label>Quantity (meters)</label>
-                                <input type="number" id="modal-quantity" class="modal-input" min="0" step="1">
-                            </div>
-                            <div class="modal-field">
-                                <label>Speed (m/min)</label>
-                                <input type="number" id="modal-speed" class="modal-input" min="1" step="1">
-                            </div>
+                        <div class="modal-field">
+                            <label>Job Name</label>
+                            <input type="text" id="modal-job-name" class="modal-input">
+                        </div>
+                        <div class="modal-field">
+                            <label>Machine</label>
+                            <select id="modal-machine" class="modal-input">
+                                <option value="">Not Assigned</option>
+                                <option value="207">Machine 207</option>
+                                <option value="208">Machine 208</option>
+                                <option value="209">Machine 209</option>
+                                <option value="210">Machine 210</option>
+                                <option value="211">Machine 211</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div class="modal-column">
-                        <!-- Status Information -->
-                        <div class="modal-section">
-                            <h3>Status Information</h3>
-                            <div class="modal-field">
-                                <label>AW Status</label>
-                                <select id="modal-aw-status" class="modal-input">
-                                    <option value="Missing Data">Missing Data</option>
-                                    <option value="Unknown">Unknown</option>
-                                    <option value="1. Under Job-Study">Under Job-Study</option>
-                                    <option value="2. Under QC Check">Under QC Check</option>
-                                    <option value="3. S.C Approval">S.C Approval</option>
-                                    <option value="4. Need S.C Approval">Need S.C Approval</option>
-                                    <option value="5. Working on Cromalin">Working on Cromalin</option>
-                                    <option value="6. Need Cromalin Approval">Need Cromalin Approval</option>
-                                    <option value="7. Cromalin Approval">Cromalin Approval</option>
-                                    <option value="8. Repro: Plate Making">Repro: Plate Making</option>
-                                    <option value="9. Plates are Ready">Plates are Ready</option>
-                                    <option value="Deleted">Deleted</option>
-                                    <option value="On Hold">On Hold</option>
-                                </select>
-                            </div>
-                            <div class="modal-field">
-                                <label>PL Status</label>
-                                <select id="modal-pl-status" class="modal-input">
-                                    <option value="Planned">Planned</option>
-                                    <option value="Unplanned">Unplanned</option>
-                                    <option value="Complete">Complete</option>
-                                    <option value="PL-Deleted">Deleted</option>
-                                    <option value="PL-Hold">Hold</option>
-                                </select>
-                            </div>
-                            <div class="modal-field">
-                                <label>Status Since</label>
-                                <input type="datetime-local" id="modal-status-date" class="modal-input">
-                            </div>
-                            <div class="modal-field" id="modal-estimated-date-container">
-                                <label>Estimated Ready Date</label>
-                                <input type="datetime-local" id="modal-estimated-date" class="modal-input" readonly>
-                            </div>
+                    <!-- Job Parameters -->
+                    <div class="modal-section">
+                        <h3>Job Parameters</h3>
+                        <div class="modal-field">
+                            <label>Setup Time (min)</label>
+                            <input type="number" id="modal-setup" class="modal-input" min="0" step="1">
                         </div>
-                        <!-- Timeline Information -->
-                        <div class="modal-section">
-                            <h3>Timeline Information</h3>
-                            <div class="modal-field">
-                                <label>On Timeline</label>
-                                <span id="modal-on-timeline" class="modal-badge">No</span>
-                            </div>
+                        <div class="modal-field">
+                            <label>Quantity (meters)</label>
+                            <input type="number" id="modal-quantity" class="modal-input" min="0" step="1">
+                        </div>
+                        <div class="modal-field">
+                            <label>Speed (m/min)</label>
+                            <input type="number" id="modal-speed" class="modal-input" min="1" step="1">
+                        </div>
+                    </div>
+
+                    <!-- Timeline Information - KEEP ONLY ONE -->
+                    <div class="modal-section">
+                        <h3>Timeline Information</h3>
+                        <div class="modal-field">
+                            <label>On Timeline</label>
+                            <span id="modal-on-timeline" class="modal-badge">No</span>
+                        </div>
+                        <div class="modal-time-row">
                             <div class="modal-field">
                                 <label>Start Time</label>
-                                <span id="modal-start-time" class="modal-info-text">Not scheduled</span>
+                                <input type="datetime-local" id="modal-start-time-input" class="modal-input" disabled>
                             </div>
                             <div class="modal-field">
                                 <label>End Time</label>
-                                <span id="modal-end-time" class="modal-info-text">Not scheduled</span>
+                                <input type="datetime-local" id="modal-end-time-input" class="modal-input" disabled>
                             </div>
-                            <div class="modal-field">
-                                <label>Duration</label>
-                                <span id="modal-duration" class="modal-info-text">N/A</span>
-                            </div>
+                            <button id="modal-apply-time-btn" class="modal-btn-sm" style="margin-top:18px; display:none;">
+                                <i class="fas fa-save"></i> Apply
+                            </button>
+                        </div>
+                        <div class="modal-field">
+                            <label>Duration</label>
+                            <span id="modal-duration" class="modal-info-text">N/A</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Additional Planning Data -->
-                <div class="modal-section" id="modal-pl-data-section">
-                    <h3>Additional Planning Data</h3>
-                    <div class="modal-grid modal-grid-3">
+                <div class="modal-column">
+                    <!-- Status Information -->
+                    <div class="modal-section">
+                        <h3>Status Information</h3>
+                        <div class="modal-field">
+                            <label>AW Status</label>
+                            <select id="modal-aw-status" class="modal-input">
+                                <option value="Missing Data">Missing Data</option>
+                                <option value="Unknown">Unknown</option>
+                                <option value="1. Under Job-Study">Under Job-Study</option>
+                                <option value="2. Under QC Check">Under QC Check</option>
+                                <option value="3. S.C Approval">S.C Approval</option>
+                                <option value="4. Need S.C Approval">Need S.C Approval</option>
+                                <option value="5. Working on Cromalin">Working on Cromalin</option>
+                                <option value="6. Need Cromalin Approval">Need Cromalin Approval</option>
+                                <option value="7. Cromalin Approval">Cromalin Approval</option>
+                                <option value="8. Repro: Plate Making">Repro: Plate Making</option>
+                                <option value="9. Plates are Ready">Plates are Ready</option>
+                                <option value="Deleted">Deleted</option>
+                                <option value="On Hold">On Hold</option>
+                            </select>
+                        </div>
+                        <div class="modal-field">
+                            <label>PL Status</label>
+                            <select id="modal-pl-status" class="modal-input">
+                                <option value="Planned">Planned</option>
+                                <option value="Unplanned">Unplanned</option>
+                                <option value="Complete">Complete</option>
+                                <option value="PL-Deleted">Deleted</option>
+                                <option value="PL-Hold">Hold</option>
+                            </select>
+                        </div>
+                        <div class="modal-field">
+                            <label>Status Since</label>
+                            <input type="datetime-local" id="modal-status-date" class="modal-input">
+                        </div>
+                        <div class="modal-field" id="modal-estimated-date-container">
+                            <label>Estimated Ready Date</label>
+                            <input type="datetime-local" id="modal-estimated-date" class="modal-input" readonly>
+                        </div>
+                    </div>
+
+                    <!-- Additional Planning Data -->
+                    <div class="modal-section" id="modal-pl-data-section">
+                        <h3>Additional Planning Data</h3>
                         <div class="modal-field">
                             <label>NEW PLAT</label>
                             <input type="text" id="modal-new-plat" class="modal-input">
@@ -344,14 +349,15 @@
                     </div>
                 </div>
             </div>
-            <div class="job-modal-footer">
-                <button class="modal-btn modal-btn-secondary" id="modal-remove-from-timeline">Remove</button>
-                <button class="modal-btn modal-btn-secondary" id="modal-add-to-timeline">Add to Timeline</button>
-                <button class="modal-btn modal-btn-secondary" id="modal-cancel-btn">Cancel</button>
-                <button class="modal-btn modal-btn-primary" id="modal-save-btn">Save Changes</button>
-            </div>
+        </div>
+        <div class="job-modal-footer">
+            <button class="modal-btn modal-btn-secondary" id="modal-remove-from-timeline">Remove</button>
+            <button class="modal-btn modal-btn-secondary" id="modal-add-to-timeline">Add to Timeline</button>
+            <button class="modal-btn modal-btn-secondary" id="modal-cancel-btn">Cancel</button>
+            <button class="modal-btn modal-btn-primary" id="modal-save-btn">Save Changes</button>
         </div>
     </div>
+</div>
 
     <!-- ============================================================
     SCRIPTS
