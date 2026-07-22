@@ -61,31 +61,60 @@ function updateUploadStatus(uploader) {
     uploadStatus[uploader].lastUpdated = now;
     uploadStatus[uploader].status = 'updated';
     updateStatusIndicators();
+    
+    // 🔴 CRITICAL FIX: Save to Supabase so it persists across page reloads
+    if (typeof supabaseUpdateUploadStatus === 'function') {
+        supabaseUpdateUploadStatus(uploader, 'updated');
+    }
+    console.log(`✅ Upload status updated for ${uploader} at ${now.toLocaleTimeString()}`);
 }
 
 function checkUploadValidity() {
     const now = new Date();
     let allUpdated = true;
+    let anyExpired = false;
+    const statusChanges = [];
+    
     for (const [key, value] of Object.entries(uploadStatus)) {
         if (value.lastUpdated === null) {
             value.status = 'pending';
             allUpdated = false;
+            statusChanges.push(`${key}: pending (never updated)`);
         } else {
             const diffMinutes = (now - value.lastUpdated) / (1000 * 60);
+            console.log(`📊 ${key}: ${diffMinutes.toFixed(1)} minutes since update (valid: ${UPLOAD_VALIDITY_MINUTES} minutes)`);
+            
             if (diffMinutes > UPLOAD_VALIDITY_MINUTES) {
                 value.status = 'expired';
                 allUpdated = false;
+                anyExpired = true;
+                statusChanges.push(`${key}: expired (${diffMinutes.toFixed(0)} min)`);
             } else {
                 value.status = 'updated';
+                // Don't set allUpdated to false for updated items
             }
         }
     }
+    
+    if (statusChanges.length > 0) {
+        console.log(`📊 Status changes: ${statusChanges.join(', ')}`);
+    }
+    
+    // Show warning if any expired
+    if (anyExpired) {
+        const expiredNames = Object.entries(uploadStatus)
+            .filter(([key, val]) => val.status === 'expired')
+            .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1))
+            .join(', ');
+        showNotification(`⚠️ Uploads from ${expiredNames} have expired (24h) - Please re-upload`, 'warning');
+    }
+    
     updateStatusIndicators(allUpdated);
     return allUpdated;
 }
 
 // ============================================================
-// UPDATE STATUS INDICATORS
+// UPDATE STATUS INDICATORS - FIXED with better visual feedback
 // ============================================================
 function updateStatusIndicators(allUpdated = null) {
     let statusContainer = document.getElementById('upload-status-container');
@@ -107,50 +136,76 @@ function updateStatusIndicators(allUpdated = null) {
         { key: 'qasem', label: 'Qasem' }
     ];
     
+    // Check if all are updated
     const isAllUpdated = statusConfigs.every(c => uploadStatus[c.key].status === 'updated');
     if (isAllUpdated) {
-        statusContainer.innerHTML = `<div class="upload-status-item status-all-updated"><span>✅ All Data are updated !!</span></div>`;
+        statusContainer.innerHTML = `
+            <div class="upload-status-item status-all-updated" style="background: #d4edda; border-color: #28a745;">
+                <span>✅ All data is up to date! (Last upload < 24h)</span>
+            </div>
+        `;
         return;
     }
     
     let statusHTML = '';
     let pendingCount = 0;
     let pendingNames = [];
+    let expiredCount = 0;
+    let expiredNames = [];
     
     for (const config of statusConfigs) {
         const status = uploadStatus[config.key];
-        if (status.status !== 'updated') {
-            let statusClass = 'status-pending';
-            let statusText = '⏳ Pending';
-            let icon = '🔴';
-            
-            if (status.status === 'expired') {
-                statusText = '⚠️ Please update!';
-                statusClass = 'status-expired';
-            } else {
-                statusText = 'Pending...';
-                statusClass = 'status-pending';
+        let statusClass = 'status-pending';
+        let statusText = '⏳ Pending';
+        let icon = '🔴';
+        let timeInfo = '';
+        
+        if (status.status === 'expired') {
+            statusText = '⚠️ EXPIRED';
+            statusClass = 'status-expired';
+            icon = '🔴';
+            expiredCount++;
+            expiredNames.push(config.label);
+            if (status.lastUpdated) {
+                const diffHours = (Date.now() - status.lastUpdated.getTime()) / (1000 * 60 * 60);
+                timeInfo = ` (${diffHours.toFixed(0)}h ago)`;
             }
-            
+        } else if (status.status === 'pending') {
+            statusText = '⏳ Pending';
+            statusClass = 'status-pending';
+            icon = '🟡';
             pendingCount++;
             pendingNames.push(config.label);
-            
-            statusHTML += `
-                <div class="upload-status-item ${statusClass}">
-                    <span class="status-warning-icon">${icon}</span>
-                    <span class="status-label">${config.label}:</span>
-                    <span class="status-text">${statusText}</span>
-                </div>
-            `;
+        } else if (status.status === 'updated') {
+            // This shouldn't happen if isAllUpdated is false, but just in case
+            statusText = '✅ Updated';
+            statusClass = 'status-updated';
+            icon = '✅';
         }
+        
+        statusHTML += `
+            <div class="upload-status-item ${statusClass}">
+                <span class="status-warning-icon">${icon}</span>
+                <span class="status-label">${config.label}:</span>
+                <span class="status-text">${statusText}${timeInfo}</span>
+            </div>
+        `;
     }
     
-    const summaryHTML = `
-        <div class="upload-status-item status-some-pending">
-            <span>🔴</span>
-            <span><strong>${pendingCount}</strong> update${pendingCount > 1 ? 's' : ''} pending: <strong>${pendingNames.join(', ')}</strong></span>
-        </div>
-    `;
+    let summaryHTML = '';
+    if (expiredCount > 0) {
+        summaryHTML = `
+            <div class="upload-status-item status-expired-summary" style="background: #f8d7da; border-color: #dc3545; padding: 8px 12px; border-radius: 6px; margin-top: 4px;">
+                <span>🔴 <strong>${expiredCount}</strong> upload${expiredCount > 1 ? 's' : ''} expired: <strong>${expiredNames.join(', ')}</strong> (must re-upload within 24h)</span>
+            </div>
+        `;
+    } else if (pendingCount > 0) {
+        summaryHTML = `
+            <div class="upload-status-item status-pending-summary" style="background: #fff3cd; border-color: #ffc107; padding: 8px 12px; border-radius: 6px; margin-top: 4px;">
+                <span>🟡 <strong>${pendingCount}</strong> upload${pendingCount > 1 ? 's' : ''} pending: <strong>${pendingNames.join(', ')}</strong></span>
+            </div>
+        `;
+    }
     
     statusContainer.innerHTML = statusHTML + summaryHTML;
 }
@@ -442,11 +497,21 @@ function setupExcelUploads() {
 // ============================================================
 // HANDLE AW UPLOAD
 // ============================================================
-// upload.js - FIXED handleAWUpload function
-
+// ============================================================
+// HANDLE AW UPLOAD - WITH PERMISSION CHECKS
+// ============================================================
 function handleAWUpload(file) {
-    console.log('Uploading AW Excel file:', file.name);
-    showUploadProgress('Reading AW file...', 10);
+    // ============================================================
+    // PERMISSION CHECK - Only Admin and AW Group can upload AW files
+    // ============================================================
+    if (!canUploadAW()) {
+        showNotification('❌ You don\'t have permission to upload AW files', 'error');
+        console.warn(`⚠️ User ${currentUserProfile?.display_name || 'Unknown'} (${getCurrentRole()}) attempted to upload AW file`);
+        return;
+    }
+    
+    console.log(`📤 Uploading AW Excel file: ${file.name} (User: ${currentUserProfile?.display_name || 'Unknown'}, Role: ${getCurrentRole()})`);
+    showUploadProgress('📖 Reading AW file...', 10);
     
     const reader = new FileReader();
     
@@ -460,13 +525,14 @@ function handleAWUpload(file) {
             const firstSheet = workbook.Sheets[sheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
             
-            showUploadProgress('Processing AW data...', 50);
+            showUploadProgress('🔄 Processing AW data...', 50);
             const rows = jsonData.slice(3);
             let awJobsFound = 0;
             let awJobsUpdated = 0;
             
-            // ⭐ Collect data to save to Supabase - match your schema
+            // Collect data to save to Supabase
             const awDataToSave = {};
+            const jobsToUpdate = [];
             
             rows.forEach((row) => {
                 if (!row || row.length < 10) return;
@@ -474,6 +540,9 @@ function handleAWUpload(file) {
                 const status = String(row[8] || '').trim();
                 if (!jobNumber) return;
                 
+                // ============================================================
+                // PARSE STATUS DATE
+                // ============================================================
                 let statusDate = null;
                 const statusDateMap = {
                     '1. Under Job-Study': { index: 32 },
@@ -509,17 +578,24 @@ function handleAWUpload(file) {
                     estimatedDate = calculateEstimatedDate(statusDate, 2);
                 }
                 
-                // ⭐ Store in memory
+                // ============================================================
+                // STORE AW DATA IN MEMORY
+                // ============================================================
                 awData[jobNumber] = {
                     status: rawStatus,
                     rawStatus: rawStatus,
                     statusDate: statusDate.toISOString(),
                     estimatedDate: estimatedDate ? estimatedDate.toISOString() : null,
-                    isFromAW: true
+                    isFromAW: true,
+                    uploadedBy: currentUserProfile?.display_name || 'Unknown',
+                    uploadedAt: new Date().toISOString()
                 };
                 
-                // ⭐ Save to Supabase - match your schema exactly (NO last_updated)
+                // ============================================================
+                // PREPARE FOR SUPABASE SAVE
+                // ============================================================
                 awDataToSave[jobNumber] = {
+                    job_number: jobNumber,
                     status: rawStatus,
                     raw_status: rawStatus,
                     status_date: statusDate.toISOString(),
@@ -527,9 +603,12 @@ function handleAWUpload(file) {
                     is_from_aw: true
                 };
                 
-                // Update job if it exists
+                // ============================================================
+                // UPDATE JOB IF IT EXISTS
+                // ============================================================
                 let jobId = findJobIdByNumber(jobNumber);
                 if (jobId && jobDatabase[jobId]) {
+                    // Only update AW-related fields (not PL fields)
                     jobDatabase[jobId].awStatus = rawStatus;
                     jobDatabase[jobId].status = rawStatus;
                     jobDatabase[jobId].statusDate = statusDate.toISOString();
@@ -544,34 +623,56 @@ function handleAWUpload(file) {
                     }
                     
                     awJobsUpdated++;
+                    jobsToUpdate.push(jobId);
                 }
                 awJobsFound++;
             });
             
-            // ⭐ CRITICAL: Save AW data to Supabase immediately
+            // ============================================================
+            // SAVE AW DATA TO SUPABASE
+            // ============================================================
             if (Object.keys(awDataToSave).length > 0) {
                 showUploadProgress(`💾 Saving ${Object.keys(awDataToSave).length} AW records to database...`, 70);
                 
-                // Use the corrected function that matches your schema
+                // Save AW data using the corrected function
                 supabaseSaveMultipleAWData(awDataToSave).then(success => {
                     if (success) {
                         console.log(`✅ ${Object.keys(awDataToSave).length} AW records saved to Supabase`);
+                        // Log to audit
+                        logAuditAction('AW_UPLOAD', 'aw_data', Object.keys(awDataToSave).length + ' records', {
+                            recordsCount: Object.keys(awDataToSave).length,
+                            jobsUpdated: awJobsUpdated,
+                            fileName: file.name
+                        });
                     } else {
                         console.warn('⚠️ Some AW records may not have been saved');
                     }
                 });
             }
             
-            // ⭐ Update jobs in Supabase as well
+            // ============================================================
+            // UPDATE JOBS IN SUPABASE (AW fields only)
+            // ============================================================
             if (awJobsUpdated > 0) {
                 showUploadProgress(`💾 Updating ${awJobsUpdated} jobs in database...`, 80);
                 
-                // Update each job that was modified
+                // Update each job that was modified (only AW fields)
                 for (const [jobId, jobData] of Object.entries(jobDatabase)) {
                     if (jobData.rawAWStatus && jobData.rawAWStatus !== 'Unknown' && jobData.rawAWStatus !== 'Missing Data') {
                         const snakeData = convertCamelToSnake(jobData);
                         snakeData.job_id = jobId;
-                        supabaseSaveJob(jobId, snakeData).then(success => {
+                        
+                        // Only include AW-related fields to prevent overwriting PL data
+                        const awFieldsOnly = {
+                            job_id: jobId,
+                            aw_status: snakeData.aw_status,
+                            raw_aw_status: snakeData.raw_aw_status,
+                            status: snakeData.status,
+                            status_date: snakeData.status_date,
+                            estimated_date: snakeData.estimated_date
+                        };
+                        
+                        supabaseSaveJob(jobId, awFieldsOnly).then(success => {
                             if (success) {
                                 console.log(`✅ Job ${jobId} updated with AW status: ${jobData.rawAWStatus}`);
                             }
@@ -580,14 +681,9 @@ function handleAWUpload(file) {
                 }
             }
             
-            // Update UI
-            populateProductionFeed();
-            applyFilter();
-            updateFilterCounts();
-            updateStatistics();
-            updateFilterBadge();
-            syncFilterCheckboxes();
-            
+            // ============================================================
+            // UPDATE UPLOAD STATUS
+            // ============================================================
             if (detected.fullData) {
                 updateUploadStatus('mahmoud');
                 updateUploadStatus('raed');
@@ -600,22 +696,47 @@ function handleAWUpload(file) {
                 showNotification(`✅ AW data uploaded - ${awJobsUpdated} jobs updated, ${awJobsFound} records`, 'success');
             }
             
-            showUploadProgress(`AW upload complete: ${awJobsUpdated} jobs updated`, 100);
+            // ============================================================
+            // UPDATE UI
+            // ============================================================
+            populateProductionFeed();
+            applyFilter();
+            updateFilterCounts();
+            updateStatistics();
+            updateFilterBadge();
+            syncFilterCheckboxes();
+            
+            // ============================================================
+            // LOG TO AUDIT (if available)
+            // ============================================================
+            if (typeof logAuditAction === 'function') {
+                logAuditAction('AW_UPLOAD', 'aw_data', file.name, {
+                    recordsFound: awJobsFound,
+                    jobsUpdated: awJobsUpdated,
+                    uploader: currentUserProfile?.display_name || 'Unknown',
+                    role: getCurrentRole(),
+                    detectedUploaders: detected
+                });
+            }
+            
+            showUploadProgress(`✅ AW upload complete: ${awJobsUpdated} jobs updated`, 100);
             setTimeout(() => hideUploadProgress(), 1500);
             
+            console.log(`✅ AW upload completed by ${currentUserProfile?.display_name || 'Unknown'} (${getCurrentRole()}): ${awJobsFound} records, ${awJobsUpdated} jobs updated`);
+            
         } catch (error) {
-            console.error('Error processing AW file:', error);
-            showUploadProgress('Error processing AW file', 100);
+            console.error('❌ Error processing AW file:', error);
+            showUploadProgress('❌ Error processing AW file', 100);
             setTimeout(() => hideUploadProgress(), 3000);
-            alert('Error reading AW Excel file. Please check the file format.\nError: ' + error.message);
+            showNotification('❌ Error reading AW Excel file: ' + error.message, 'error');
         }
     };
     
     reader.onerror = function() {
-        console.error('Error reading AW file');
-        showUploadProgress('Error reading file', 100);
+        console.error('❌ Error reading AW file');
+        showUploadProgress('❌ Error reading file', 100);
         setTimeout(() => hideUploadProgress(), 3000);
-        alert('Error reading file. Please try again.');
+        showNotification('❌ Error reading file. Please try again.', 'error');
     };
     
     reader.readAsArrayBuffer(file);
@@ -1287,25 +1408,37 @@ if (schedulesToSave.length > 0) {
         hideUploadProgress();
         alert('Error reading file. Please try again.');
     };
-    
+
+
+// 🔴 CRITICAL FIX: Update qasem status with proper timestamp
+const now = new Date();
+uploadStatus['qasem'].lastUpdated = now;
+uploadStatus['qasem'].status = 'updated';
+if (typeof supabaseUpdateUploadStatus === 'function') {
+    supabaseUpdateUploadStatus('qasem', 'updated');
+}
     reader.readAsArrayBuffer(file);
 }
 
 // ============================================================
-// START STATUS MONITORING
+// START UPLOAD STATUS MONITORING - FIXED
 // ============================================================
 function startUploadStatusMonitoring() {
+    // Run initial check
     checkUploadValidity();
+    
+    // Update status indicators immediately
     setTimeout(function() {
         updateStatusIndicators();
     }, 100);
     
+    // 🔴 CRITICAL FIX: Check every 5 minutes instead of 30 seconds
     if (statusCheckInterval) {
         clearInterval(statusCheckInterval);
     }
-    statusCheckInterval = setInterval(checkUploadValidity, 30000);
+    statusCheckInterval = setInterval(checkUploadValidity, 300000); // 5 minutes
     
-    console.log(`📊 Upload status monitoring started (validity: ${UPLOAD_VALIDITY_MINUTES} minutes)`);
+    console.log(`📊 Upload status monitoring started (checking every 5 minutes, validity: ${UPLOAD_VALIDITY_MINUTES} minutes)`);
 }
 
 // ============================================================
