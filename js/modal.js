@@ -481,7 +481,7 @@ async function saveJobTimeOnly() {
 }
 
 // ============================================================
-// SAVE JOB DETAILS FROM MODAL
+// SAVE JOB DETAILS FROM MODAL - FIXED VERSION
 // ============================================================
 async function saveJobDetailsFromModal() {
     if (!currentModalJobId) {
@@ -496,7 +496,9 @@ async function saveJobDetailsFromModal() {
         return;
     }
     
-    // Collect values
+    // ============================================================
+    // COLLECT VALUES FROM MODAL
+    // ============================================================
     const nameInput = document.getElementById('modal-job-name');
     const setupInput = document.getElementById('modal-setup');
     const quantityInput = document.getElementById('modal-quantity');
@@ -505,17 +507,21 @@ async function saveJobDetailsFromModal() {
     const awStatusSelect = document.getElementById('modal-aw-status');
     const plStatusSelect = document.getElementById('modal-pl-status');
     const dateInput = document.getElementById('modal-status-date');
+    const priorityInput = document.getElementById('modal-priority');
     
     const name = nameInput ? nameInput.value.trim() : '';
     const setup = parseFloat(setupInput ? setupInput.value : 0);
     const quantity = parseFloat(quantityInput ? quantityInput.value : 0);
     const speed = parseFloat(speedInput ? speedInput.value : 0);
     const machine = machineSelect ? machineSelect.value : '';
-    const awStatus = awStatusSelect ? awStatusSelect.value : 'Missing Data';
-    const plStatus = plStatusSelect ? plStatusSelect.value : 'Unplanned';
+    const newAwStatus = awStatusSelect ? awStatusSelect.value : 'Missing Data';
+    const newPlStatus = plStatusSelect ? plStatusSelect.value : 'Unplanned';
     const statusDateStr = dateInput ? dateInput.value : '';
+    const newPriority = priorityInput ? parseInt(priorityInput.value) || 999 : 999;
     
-    // Validate
+    // ============================================================
+    // VALIDATE INPUTS
+    // ============================================================
     if (!name) {
         showNotification('⚠️ Job name is required', 'warning');
         return;
@@ -533,7 +539,58 @@ async function saveJobDetailsFromModal() {
         return;
     }
     
-    // Status date
+    // ============================================================
+    // CHECK PERMISSIONS
+    // ============================================================
+    let hasPermissionErrors = false;
+    
+    if (newAwStatus !== jobData.rawAWStatus && newAwStatus !== jobData.awStatus) {
+        if (!canEditAWStatus()) {
+            showNotification('❌ You don\'t have permission to change AW status', 'error');
+            hasPermissionErrors = true;
+        }
+    }
+    
+    if (newPlStatus !== jobData.planningStatus) {
+        if (!canEditPLStatus()) {
+            showNotification('❌ You don\'t have permission to change PL status', 'error');
+            hasPermissionErrors = true;
+        }
+    }
+    
+    if (setup !== jobData.setup && !canEditSetup()) {
+        showNotification('❌ You don\'t have permission to change setup time', 'error');
+        hasPermissionErrors = true;
+    }
+    
+    if (quantity !== jobData.quantity && !canEditQuantity()) {
+        showNotification('❌ You don\'t have permission to change quantity', 'error');
+        hasPermissionErrors = true;
+    }
+    
+    const currentSpeed = jobSpeeds[jobId] || jobData.machineSpeed || machineConfig.speed;
+    if (speed !== currentSpeed && !canEditSpeed()) {
+        showNotification('❌ You don\'t have permission to change speed', 'error');
+        hasPermissionErrors = true;
+    }
+    
+    if (machine !== jobData.machine && !canChangeMachine()) {
+        showNotification('❌ You don\'t have permission to change machine assignment', 'error');
+        hasPermissionErrors = true;
+    }
+    
+    if (newPriority !== jobData.priority && !canChangePriority()) {
+        showNotification('❌ You don\'t have permission to change priority', 'error');
+        hasPermissionErrors = true;
+    }
+    
+    if (hasPermissionErrors) {
+        return;
+    }
+    
+    // ============================================================
+    // PROCESS STATUS DATE
+    // ============================================================
     let statusDate = new Date();
     if (statusDateStr) {
         const parsed = new Date(statusDateStr);
@@ -542,40 +599,70 @@ async function saveJobDetailsFromModal() {
         }
     }
     
-    // Check if job is on timeline
+    // ============================================================
+    // CHECK JOB STATUS ON TIMELINE
+    // ============================================================
     const timelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
     const isOnTimeline = !!timelineJob;
-    
-    // Check if status changed to Complete
     const wasComplete = jobData.planningStatus === 'Complete' || jobData.isComplete === true;
-    const isNowComplete = plStatus === 'Complete';
+    const isNowComplete = newPlStatus === 'Complete';
+    const isNowUnplanned = newPlStatus === 'Unplanned';
     
-    // Update job database with machine
+    // ============================================================
+    // ⭐ CRITICAL FIX: Handle Unplanned status - ALWAYS remove from timeline
+    // ============================================================
+    // Store the timeline reference before any changes
+    let timelineRef = null;
+    if (timelineJob) {
+        timelineRef = timelineJob.parentElement;
+    }
+    
+    // ============================================================
+    // UPDATE JOB DATA IN MEMORY
+    // ============================================================
     jobData.name = name;
     jobData.setup = setup;
     jobData.quantity = quantity;
-    jobData.awStatus = awStatus;
-    jobData.rawAWStatus = awStatus;
-    jobData.status = awStatus;
-    jobData.planningStatus = plStatus;
+    jobData.status = newAwStatus;
     jobData.statusDate = statusDate.toISOString();
     jobData.machine = machine;
     jobData.isComplete = isNowComplete;
+    jobData.priority = newPriority;
     
-    console.log(`✅ Machine saved for job ${jobId}: ${machine}`);
+    if (canEditAWStatus()) {
+        jobData.awStatus = newAwStatus;
+        jobData.rawAWStatus = newAwStatus;
+    }
     
-    // Update PL database
+    if (canEditPLStatus()) {
+        jobData.planningStatus = newPlStatus;
+    }
+    
+    // ============================================================
+    // UPDATE PL DATABASE
+    // ============================================================
     if (plDatabase[jobId]) {
         plDatabase[jobId].jobName = name;
         plDatabase[jobId].setupTime = setup;
         plDatabase[jobId].meters = quantity;
-        plDatabase[jobId].prepressStatus = awStatus;
-        plDatabase[jobId].planningStatus = plStatus;
         plDatabase[jobId].statusDate = statusDate.toISOString();
         plDatabase[jobId].machine = machine;
         plDatabase[jobId].isComplete = isNowComplete;
+        plDatabase[jobId].priority = newPriority;
+        
+        if (canEditAWStatus()) {
+            plDatabase[jobId].prepressStatus = newAwStatus;
+            plDatabase[jobId].rawAWStatus = newAwStatus;
+        }
+        
+        if (canEditPLStatus()) {
+            plDatabase[jobId].planningStatus = newPlStatus;
+        }
     }
     
+    // ============================================================
+    // COLLECT ADDITIONAL FIELDS
+    // ============================================================
     const additionalFields = {
         newPlat: document.getElementById('modal-new-plat')?.value || '',
         materialAvailability: document.getElementById('modal-material-availability')?.value || '',
@@ -590,14 +677,54 @@ async function saveJobDetailsFromModal() {
     Object.assign(jobData, additionalFields);
     if (plDatabase[jobId]) Object.assign(plDatabase[jobId], additionalFields);
     
-    jobSpeeds[jobId] = speed;
-    if (plDatabase[jobId]) {
-        plDatabase[jobId].machineSpeed = speed;
-        plDatabase[jobId].plannedSpeed = speed;
-        plDatabase[jobId].actualSpeed = speed;
+    // ============================================================
+    // UPDATE SPEED
+    // ============================================================
+    if (canEditSpeed()) {
+        jobSpeeds[jobId] = speed;
+        if (plDatabase[jobId]) {
+            plDatabase[jobId].machineSpeed = speed;
+            plDatabase[jobId].plannedSpeed = speed;
+            plDatabase[jobId].actualSpeed = speed;
+        }
     }
     
-    // ⭐ CRITICAL: If job is marked as Complete, update the schedule to mark it as printed
+    // ============================================================
+    // ⭐ CRITICAL FIX: Handle Unplanned - Remove from timeline IMMEDIATELY
+    // ============================================================
+    if (isNowUnplanned && isOnTimeline && timelineJob && !timelineJob.classList.contains('job-printed')) {
+        console.log(`📊 Removing job ${jobId} from timeline (status changed to Unplanned)`);
+        
+        // Remove the job from the timeline
+        const timelineId = timelineRef ? timelineRef.id : timelineJob.parentElement.id;
+        
+        // Use returnJobToFeed to properly remove it
+        returnJobToFeed(timelineJob);
+        
+        // Update the feed item to show Unplanned
+        const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
+        if (feedItem) {
+            const newFeedItem = createFeedJobElement(jobId, jobData);
+            feedItem.parentNode.replaceChild(newFeedItem, feedItem);
+        }
+        
+        // Update statistics and filter
+        updateStatistics();
+        applyFilter();
+        updateAllJobColors();
+        applySmartZoom();
+        
+        // Show notification
+        showNotification(`↩️ "${name}" removed from timeline (status: Unplanned)`, 'info');
+        
+        // Close modal and return early
+        closeJobDetailsModal();
+        return;
+    }
+    
+    // ============================================================
+    // HANDLE COMPLETED JOB (PRINTED)
+    // ============================================================
     if (isNowComplete && isOnTimeline && jobSchedule[jobId]) {
         jobSchedule[jobId].isPrinted = true;
         if (jobSchedule[jobId].endTime > Date.now()) {
@@ -619,26 +746,28 @@ async function saveJobDetailsFromModal() {
         }
     }
     
-    // If job was marked as Complete and is on timeline, remove other printed jobs
-    if (isNowComplete && isOnTimeline) {
-        const timeline = timelineJob?.parentElement;
-        if (timeline) {
-            const allPrinted = timeline.querySelectorAll('.job.job-printed');
-            if (allPrinted.length > 1) {
-                const toRemove = Array.from(allPrinted).filter(job => 
-                    job.getAttribute('data-job-id') !== jobId
-                );
-                toRemove.forEach(job => {
-                    const id = job.getAttribute('data-job-id');
-                    delete jobSchedule[id];
-                    job.remove();
-                    console.log(`🗑️ Removed old printed job ${id} from timeline`);
-                });
-            }
+    // ============================================================
+    // REMOVE OLD PRINTED JOBS
+    // ============================================================
+    if (isNowComplete && isOnTimeline && timelineRef) {
+        const allPrinted = timelineRef.querySelectorAll('.job.job-printed');
+        if (allPrinted.length > 1) {
+            const toRemove = Array.from(allPrinted).filter(job => 
+                job.getAttribute('data-job-id') !== jobId
+            );
+            toRemove.forEach(job => {
+                const id = job.getAttribute('data-job-id');
+                delete jobSchedule[id];
+                job.remove();
+                console.log(`🗑️ Removed old printed job ${id} from timeline`);
+            });
         }
     }
     
-    if (isOnTimeline && machine) {
+    // ============================================================
+    // HANDLE MACHINE CHANGE (only for Planned jobs)
+    // ============================================================
+    if (isOnTimeline && machine && canChangeMachine() && !isNowUnplanned) {
         const currentTimeline = timelineJob.parentElement;
         const targetTimelineId = `timeline-${machine}`;
         const targetTimeline = document.getElementById(targetTimelineId);
@@ -660,7 +789,7 @@ async function saveJobDetailsFromModal() {
             updateAllJobTimes();
             updateAllJobColors();
         }
-    } else if (!isOnTimeline && machine && plStatus === 'Planned') {
+    } else if (!isOnTimeline && machine && newPlStatus === 'Planned' && canEditPLStatus()) {
         const targetTimelineId = `timeline-${machine}`;
         const targetTimeline = document.getElementById(targetTimelineId);
         if (targetTimeline) {
@@ -671,109 +800,79 @@ async function saveJobDetailsFromModal() {
                 showNotification(`✅ "${name}" added to timeline`, 'success');
             }
         }
-    } else if (isOnTimeline && plStatus !== 'Planned' && plStatus !== 'Complete') {
-        if (!timelineJob.classList.contains('job-printed')) {
-            const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
-            if (!feedItem) {
-                returnJobToFeed(timelineJob);
-                showNotification(`↩️ "${name}" removed from timeline (status: ${plStatus})`, 'info');
-            }
-        }
     }
     
     // ============================================================
     // HANDLE START/END TIME UPDATES
     // ============================================================
-    const startTimeInput = document.getElementById('modal-start-time-input');
-    const endTimeInput = document.getElementById('modal-end-time-input');
-    
-    if (startTimeInput && endTimeInput && startTimeInput.value && endTimeInput.value) {
-        const newStartTime = new Date(startTimeInput.value).getTime();
-        const newEndTime = new Date(endTimeInput.value).getTime();
+    if (canEditSchedule() && !isNowUnplanned) {
+        const startTimeInput = document.getElementById('modal-start-time-input');
+        const endTimeInput = document.getElementById('modal-end-time-input');
         
-        if (!isNaN(newStartTime) && !isNaN(newEndTime) && newEndTime > newStartTime) {
-            // Update the schedule
-            if (jobSchedule[jobId]) {
-                jobSchedule[jobId].startTime = newStartTime;
-                jobSchedule[jobId].endTime = newEndTime;
-                
-                // ⭐ CRITICAL: Save schedule to Supabase immediately
-                try {
-                    const scheduleData = {
-                        start_time: new Date(newStartTime).toISOString(),
-                        end_time: new Date(newEndTime).toISOString(),
-                        timeline_id: jobSchedule[jobId].timelineId,
-                        is_printed: jobSchedule[jobId].isPrinted || false
-                    };
+        if (startTimeInput && endTimeInput && startTimeInput.value && endTimeInput.value) {
+            const newStartTime = new Date(startTimeInput.value).getTime();
+            const newEndTime = new Date(endTimeInput.value).getTime();
+            
+            if (!isNaN(newStartTime) && !isNaN(newEndTime) && newEndTime > newStartTime) {
+                if (jobSchedule[jobId]) {
+                    jobSchedule[jobId].startTime = newStartTime;
+                    jobSchedule[jobId].endTime = newEndTime;
                     
-                    const saved = await supabaseSaveSchedule(jobId, scheduleData);
-                    if (saved) {
-                        console.log(`✅ Schedule saved to Supabase for ${jobId}`);
-                    } else {
-                        // Try batch save as fallback
-                        const scheduleMap = {};
-                        scheduleMap[jobId] = scheduleData;
-                        await supabaseSaveMultipleSchedules(scheduleMap);
-                    }
-                } catch (error) {
-                    console.error('❌ Error saving schedule:', error);
-                    // Try batch save as fallback
                     try {
-                        const scheduleMap = {};
-                        scheduleMap[jobId] = {
+                        const scheduleData = {
                             start_time: new Date(newStartTime).toISOString(),
                             end_time: new Date(newEndTime).toISOString(),
                             timeline_id: jobSchedule[jobId].timelineId,
                             is_printed: jobSchedule[jobId].isPrinted || false
                         };
-                        await supabaseSaveMultipleSchedules(scheduleMap);
-                    } catch (e) {
-                        console.error('❌ Fallback save also failed:', e);
+                        
+                        const saved = await supabaseSaveSchedule(jobId, scheduleData);
+                        if (!saved) {
+                            const scheduleMap = {};
+                            scheduleMap[jobId] = scheduleData;
+                            await supabaseSaveMultipleSchedules(scheduleMap);
+                        }
+                    } catch (error) {
+                        console.error('❌ Error saving schedule:', error);
+                    }
+                    
+                    const updatedTimelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
+                    if (updatedTimelineJob) {
+                        updateJobTimeDisplay(jobId);
+                    }
+                    
+                    const timeline = updatedTimelineJob?.parentElement;
+                    if (timeline) {
+                        rescheduleTimelineJobs(timeline.id, true);
+                        debouncedScaleTimeline(timeline.id);
+                        updateAllJobColors();
+                        applySmartZoom();
+                    }
+                    
+                    const durationEl = document.getElementById('modal-duration');
+                    if (durationEl) {
+                        const duration = Math.round((newEndTime - newStartTime) / 60000);
+                        durationEl.textContent = `${duration} minutes`;
                     }
                 }
-                
-                // Update the timeline display
-                const updatedTimelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
-                if (updatedTimelineJob) {
-                    updateJobTimeDisplay(jobId);
-                }
-                
-                // Reschedule the timeline
-                const timeline = updatedTimelineJob?.parentElement;
-                if (timeline) {
-                    rescheduleTimelineJobs(timeline.id, true);
-                    debouncedScaleTimeline(timeline.id);
-                    updateAllJobColors();
-                    applySmartZoom();
-                }
-                
-                // Update duration display
-                const durationEl = document.getElementById('modal-duration');
-                if (durationEl) {
-                    const duration = Math.round((newEndTime - newStartTime) / 60000);
-                    durationEl.textContent = `${duration} minutes`;
-                }
-                
-                // Trigger auto-save
-                if (typeof scheduleAutoSave === 'function') {
-                    scheduleAutoSave();
-                }
-                
-                console.log(`✅ Updated schedule for ${jobId}: ${new Date(newStartTime).toLocaleString()} → ${new Date(newEndTime).toLocaleString()}`);
             }
         }
     }
     
-    // Update feed item
+    // ============================================================
+    // UPDATE FEED ITEM
+    // ============================================================
     const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
     if (feedItem) {
         const newFeedItem = createFeedJobElement(jobId, jobData);
         feedItem.parentNode.replaceChild(newFeedItem, feedItem);
     }
     
-    // Update timeline job
+    // ============================================================
+    // UPDATE TIMELINE JOB (if still on timeline)
+    // ============================================================
     const updatedTimelineJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
-    if (updatedTimelineJob) {
+    if (updatedTimelineJob && !isNowUnplanned) {
         const newTimelineJob = createJobElement(jobId, jobData);
         updatedTimelineJob.parentNode.replaceChild(newTimelineJob, updatedTimelineJob);
         if (jobSchedule[jobId]) {
@@ -789,24 +888,83 @@ async function saveJobDetailsFromModal() {
         }
     }
     
+    // ============================================================
+    // SAVE TO SUPABASE
+    // ============================================================
+    if (typeof supabaseSaveJob === 'function') {
+        try {
+            const jobDataToSave = convertCamelToSnake(jobData);
+            jobDataToSave.job_id = jobId;
+            
+            if (!canEditAWStatus()) {
+                delete jobDataToSave.aw_status;
+                delete jobDataToSave.raw_aw_status;
+                delete jobDataToSave.status;
+            }
+            
+            if (!canEditPLStatus()) {
+                delete jobDataToSave.planning_status;
+                delete jobDataToSave.is_complete;
+                delete jobDataToSave.is_planned;
+                delete jobDataToSave.is_unplanned;
+            }
+            
+            if (!canChangePriority()) {
+                delete jobDataToSave.priority;
+            }
+            
+            await supabaseSaveJob(jobId, jobDataToSave);
+            console.log(`✅ Job ${jobId} saved to Supabase`);
+        } catch (error) {
+            console.error('❌ Error saving job to Supabase:', error);
+        }
+    }
+    
+    if (typeof supabaseSavePLData === 'function' && plDatabase[jobId]) {
+        try {
+            const plDataToSave = convertCamelToSnake(plDatabase[jobId]);
+            
+            if (!canEditAWStatus()) {
+                delete plDataToSave.prepress_status;
+                delete plDataToSave.raw_aw_status;
+            }
+            if (!canEditPLStatus()) {
+                delete plDataToSave.planning_status;
+                delete plDataToSave.is_complete;
+                delete plDataToSave.is_planned;
+                delete plDataToSave.is_unplanned;
+            }
+            if (!canChangePriority()) {
+                delete plDataToSave.priority;
+            }
+            
+            await supabaseSavePLData(jobId, plDataToSave);
+            console.log(`✅ PL data for ${jobId} saved to Supabase`);
+        } catch (error) {
+            console.error('❌ Error saving PL data to Supabase:', error);
+        }
+    }
+    
+    // ============================================================
+    // FINAL UI UPDATES
+    // ============================================================
     applyFilter();
     updateStatistics();
     updateAllJobColors();
     updateAllJobTimes();
     applySmartZoom();
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
-    showNotification(`✅ "${name}" updated successfully`, 'success');
+    
+    const role = getCurrentRole();
+    const roleDisplay = role.charAt(0).toUpperCase() + role.slice(1).replace('_', ' ');
+    showNotification(`✅ "${name}" updated successfully (${roleDisplay})`, 'success');
+    
     closeJobDetailsModal();
     
-    // ⭐ CRITICAL: Force immediate save to Supabase when job is marked as Complete
     if (isNowComplete) {
         console.log('🔄 Force saving completed job to Supabase...');
         setTimeout(async () => {
             try {
-                const jobDataToSave = convertCamelToSnake(jobData);
-                jobDataToSave.job_id = jobId;
-                await supabaseSaveJob(jobId, jobDataToSave);
-                
                 if (jobSchedule[jobId]) {
                     const scheduleData = {
                         start_time: new Date(jobSchedule[jobId].startTime).toISOString(),
@@ -815,12 +973,16 @@ async function saveJobDetailsFromModal() {
                         is_printed: true
                     };
                     await supabaseSaveSchedule(jobId, scheduleData);
-                    console.log(`✅ Completed job ${jobId} saved to Supabase`);
+                    console.log(`✅ Completed job ${jobId} schedule saved to Supabase`);
                 }
             } catch (error) {
-                console.error('❌ Error saving completed job:', error);
+                console.error('❌ Error saving completed job schedule:', error);
             }
         }, 100);
+    }
+    
+    if (typeof scheduleAutoSave === 'function') {
+        scheduleAutoSave();
     }
 }
 
