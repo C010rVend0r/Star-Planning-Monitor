@@ -882,295 +882,105 @@ async function toggleUserActive(userId, isActive) {
 
 let tempPasswordUser = null;
 
+// ============================================================
+// PASSWORD CHANGE MODAL - FIXED VERSION
+// ============================================================
+
 function showPasswordChangeModal(user, isFirstLogin = false) {
     tempPasswordUser = user;
     
-    let modal = document.getElementById('password-change-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'password-change-modal';
-        modal.className = 'password-change-modal';
-        modal.innerHTML = `
-            <div class="password-change-overlay">
-                <div class="password-change-box">
-                    <div class="password-change-header">
-                        <h2>🔐 Set Your Password</h2>
-                        <p id="password-change-message">${isFirstLogin ? 'Welcome! Please set your password to continue.' : 'Change your password'}</p>
-                    </div>
-                    <form id="password-change-form" onsubmit="handlePasswordChange(event)">
-                        <div class="password-field">
-                            <label for="current-password">Current Password</label>
-                            <input type="password" id="current-password" placeholder="Enter current password" 
-                                   ${isFirstLogin ? 'style="display:none;"' : ''}>
-                            <small ${isFirstLogin ? 'style="display:none;"' : ''}>Required for security verification</small>
-                        </div>
-                        <div class="password-field">
-                            <label for="new-password">New Password</label>
-                            <input type="password" id="new-password" placeholder="Enter new password" required>
-                            <small>Must be at least 6 characters</small>
-                        </div>
-                        <div class="password-field">
-                            <label for="confirm-password">Confirm Password</label>
-                            <input type="password" id="confirm-password" placeholder="Confirm new password" required>
-                        </div>
-                        <div class="password-strength" id="password-strength"></div>
-                        <div class="password-error" id="password-change-error"></div>
-                        <div class="password-buttons">
-                            <button type="button" class="btn-password-cancel" id="password-cancel-btn" 
-                                    ${isFirstLogin ? 'style="display:none;"' : ''}>
-                                Cancel
-                            </button>
-                            <button type="submit" class="btn-password-save" id="password-save-btn">
-                                ${isFirstLogin ? 'Set Password & Continue' : 'Update Password'}
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-        
-        // Add styles
-        if (!document.getElementById('password-change-styles')) {
-            const style = document.createElement('style');
-            style.id = 'password-change-styles';
-            style.textContent = `
-                .password-change-modal {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    z-index: 10001;
-                    display: none;
-                    animation: fadeIn 0.3s ease;
-                }
-                .password-change-modal.active {
-                    display: block;
-                }
-                .password-change-overlay {
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0,0,0,0.6);
-                    backdrop-filter: blur(8px);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-                .password-change-box {
-                    background: white;
-                    border-radius: 20px;
-                    padding: 40px;
-                    width: 100%;
-                    max-width: 440px;
-                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                    animation: slideUp 0.4s ease;
-                }
-                @keyframes slideUp {
-                    from { opacity: 0; transform: translateY(30px) scale(0.95); }
-                    to { opacity: 1; transform: translateY(0) scale(1); }
-                }
-                @keyframes fadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-                .password-change-header {
-                    text-align: center;
-                    margin-bottom: 28px;
-                }
-                .password-change-header h2 {
-                    font-size: 22px;
-                    color: #2c3e50;
-                    margin: 0 0 8px 0;
-                }
-                .password-change-header p {
-                    color: #6c757d;
-                    margin: 0;
-                    font-size: 14px;
-                }
-                .password-field {
-                    margin-bottom: 18px;
-                }
-                .password-field label {
-                    display: block;
-                    font-size: 13px;
-                    font-weight: 600;
-                    color: #2c3e50;
-                    margin-bottom: 4px;
-                }
-                .password-field input {
-                    width: 100%;
-                    padding: 12px 16px;
-                    border: 2px solid #e9ecef;
-                    border-radius: 10px;
-                    font-size: 14px;
-                    transition: border-color 0.2s, box-shadow 0.2s;
-                    box-sizing: border-box;
-                }
-                .password-field input:focus {
-                    outline: none;
-                    border-color: #667eea;
-                    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
-                }
-                .password-field input.error {
-                    border-color: #dc3545;
-                }
-                .password-field small {
-                    color: #6c757d;
-                    font-size: 12px;
-                    display: block;
-                    margin-top: 4px;
-                }
-                .password-strength {
-                    height: 4px;
-                    border-radius: 4px;
-                    background: #e9ecef;
-                    margin: 4px 0 12px 0;
-                    transition: all 0.3s;
-                    overflow: hidden;
-                }
-                .password-strength .strength-bar {
-                    height: 100%;
-                    border-radius: 4px;
-                    transition: width 0.3s, background 0.3s;
-                    width: 0%;
-                }
-                .password-strength-text {
-                    font-size: 12px;
-                    margin-top: 2px;
-                    text-align: right;
-                    color: #6c757d;
-                }
-                .password-error {
-                    color: #dc3545;
-                    font-size: 13px;
-                    margin: 8px 0;
-                    text-align: center;
-                    min-height: 20px;
-                }
-                .password-buttons {
-                    display: flex;
-                    gap: 12px;
-                    margin-top: 20px;
-                }
-                .btn-password-cancel {
-                    flex: 1;
-                    padding: 12px;
-                    border: 2px solid #e9ecef;
-                    border-radius: 10px;
-                    background: white;
-                    color: #6c757d;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                }
-                .btn-password-cancel:hover {
-                    background: #f8f9fa;
-                    border-color: #dee2e6;
-                }
-                .btn-password-save {
-                    flex: 2;
-                    padding: 12px;
-                    border: none;
-                    border-radius: 10px;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                }
-                .btn-password-save:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-                }
-                .btn-password-save:disabled {
-                    opacity: 0.6;
-                    cursor: not-allowed;
-                    transform: none;
-                }
-                .password-success {
-                    text-align: center;
-                    padding: 20px 0;
-                }
-                .password-success .checkmark {
-                    font-size: 48px;
-                    color: #28a745;
-                    margin-bottom: 12px;
-                    display: block;
-                }
-                .password-success h3 {
-                    color: #28a745;
-                    margin: 0 0 8px 0;
-                }
-                .password-success p {
-                    color: #6c757d;
-                    margin: 0;
-                }
-            `;
-            document.head.appendChild(style);
-        }
-        
-        // Setup event listeners
-        const cancelBtn = document.getElementById('password-cancel-btn');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', closePasswordChangeModal);
-        }
-        
-        // Close on overlay click
-        const overlay = document.querySelector('.password-change-overlay');
-        if (overlay) {
-            overlay.addEventListener('click', function(e) {
-                if (e.target === this && !isFirstLogin) {
-                    closePasswordChangeModal();
-                }
-            });
-        }
-        
-        // Password strength indicator
-        const newPasswordInput = document.getElementById('new-password');
-        if (newPasswordInput) {
-            newPasswordInput.addEventListener('input', function() {
-                updatePasswordStrength(this.value);
-            });
-        }
-        
-        // Confirm password validation
-        const confirmInput = document.getElementById('confirm-password');
-        if (confirmInput) {
-            confirmInput.addEventListener('input', function() {
-                const newPwd = document.getElementById('new-password').value;
-                if (this.value && this.value !== newPwd) {
-                    this.classList.add('error');
-                } else {
-                    this.classList.remove('error');
-                }
-            });
-        }
+    console.log('📱 Showing password change modal...');
+    console.log('Is first login:', isFirstLogin);
+    
+    // First, HIDE the login overlay completely
+    const loginOverlay = document.getElementById('login-overlay');
+    if (loginOverlay) {
+        loginOverlay.style.display = 'none';
+        loginOverlay.classList.add('hidden');
+        console.log('✅ Login overlay hidden');
     }
     
+    let modal = document.getElementById('password-change-modal');
+    if (!modal) {
+        console.error('❌ Password change modal not found in DOM');
+        showNotification('❌ Error: Password change form not found', 'error');
+        return;
+    }
+    
+    // Update message based on first login
+    const messageEl = document.getElementById('password-change-message');
+    if (messageEl) {
+        messageEl.textContent = isFirstLogin ? 
+            'Welcome! Please set your password to continue.' : 
+            'Change your password';
+    }
+    
+    // Show/hide current password field
+    const currentPwdField = document.getElementById('current-password-field');
+    const currentPwdInput = document.getElementById('current-password');
+    const cancelBtn = document.getElementById('password-cancel-btn');
+    const saveBtn = document.getElementById('password-save-btn');
+    
+    if (isFirstLogin) {
+        if (currentPwdField) currentPwdField.style.display = 'none';
+        if (currentPwdInput) currentPwdInput.required = false;
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (saveBtn) saveBtn.textContent = 'Set Password & Continue';
+    } else {
+        if (currentPwdField) currentPwdField.style.display = 'block';
+        if (currentPwdInput) currentPwdInput.required = true;
+        if (cancelBtn) cancelBtn.style.display = 'block';
+        if (saveBtn) saveBtn.textContent = 'Update Password';
+    }
+    
+    // Clear any previous errors
+    const errorEl = document.getElementById('password-change-error');
+    if (errorEl) errorEl.textContent = '';
+    
+    // Reset form fields
+    const newPwdInput = document.getElementById('new-password');
+    const confirmPwdInput = document.getElementById('confirm-password');
+    if (newPwdInput) newPwdInput.value = '';
+    if (confirmPwdInput) confirmPwdInput.value = '';
+    if (currentPwdInput) currentPwdInput.value = '';
+    
+    // Reset strength bar
+    const strengthBar = document.querySelector('.strength-bar');
+    if (strengthBar) strengthBar.style.width = '0%';
+    const strengthText = document.getElementById('strength-text');
+    if (strengthText) strengthText.textContent = '';
+    
+    // Show the modal
+    modal.style.display = 'block';
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
     
     // Focus first input
     setTimeout(() => {
-        const currentPwd = document.getElementById('current-password');
-        const newPwd = document.getElementById('new-password');
-        if (currentPwd && !isFirstLogin) {
-            currentPwd.focus();
-        } else if (newPwd) {
-            newPwd.focus();
+        if (!isFirstLogin && currentPwdInput) {
+            currentPwdInput.focus();
+        } else if (newPwdInput) {
+            newPwdInput.focus();
         }
     }, 300);
 }
 
+// Override the close function to restore login if needed
 function closePasswordChangeModal() {
     const modal = document.getElementById('password-change-modal');
     if (modal) {
+        modal.style.display = 'none';
         modal.classList.remove('active');
         document.body.style.overflow = '';
-        tempPasswordUser = null;
+    }
+    
+    // If user is not logged in, show login overlay again
+    if (!currentUser) {
+        const loginOverlay = document.getElementById('login-overlay');
+        if (loginOverlay) {
+            loginOverlay.style.display = 'flex';
+            loginOverlay.classList.remove('hidden');
+        }
     }
 }
 
@@ -1217,6 +1027,10 @@ function updatePasswordStrength(password) {
     textEl.style.color = color;
 }
 
+// ============================================================
+// HANDLE PASSWORD CHANGE - FIXED VERSION
+// ============================================================
+
 async function handlePasswordChange(event) {
     event.preventDefault();
     
@@ -1241,7 +1055,8 @@ async function handlePasswordChange(event) {
     }
     
     // Check if it's first login (current password field hidden)
-    const isFirstLogin = document.getElementById('current-password').style.display === 'none';
+    const currentPwdField = document.getElementById('current-password-field');
+    const isFirstLogin = currentPwdField && currentPwdField.style.display === 'none';
     
     // Disable button
     if (saveBtn) {
@@ -1252,50 +1067,75 @@ async function handlePasswordChange(event) {
     try {
         const client = initSupabase();
         let success = false;
+        let errorMessage = '';
         
         if (isFirstLogin) {
-            // First login - user doesn't have a password yet
-            // We need to use the admin API to set the password
-            // This requires a service role key
-            const { error } = await client.auth.admin.updateUserById(
-                currentUser.id,
-                { password: newPassword }
-            );
+            console.log('🔐 First login - setting password...');
             
-            if (error) {
-                // Fallback: Try the regular update if admin fails
-                const { error: updateError } = await client.auth.updateUser({
+            // Try multiple methods for first login
+            try {
+                // Method 1: Try updateUser with just password
+                const { error } = await client.auth.updateUser({
                     password: newPassword
                 });
-                if (updateError) throw updateError;
-                success = true;
-            } else {
-                success = true;
+                
+                if (error) {
+                    console.warn('Method 1 failed:', error.message);
+                    
+                    // Method 2: Try with current password (if available)
+                    if (currentPassword) {
+                        const { error: pwdError } = await client.auth.updateUser({
+                            password: newPassword,
+                            currentPassword: currentPassword
+                        });
+                        if (pwdError) throw pwdError;
+                        success = true;
+                    } else {
+                        // Method 3: Try using the session token
+                        const session = await client.auth.getSession();
+                        if (session.data.session) {
+                            const { error: sessionError } = await client.auth.updateUser({
+                                password: newPassword
+                            });
+                            if (sessionError) throw sessionError;
+                            success = true;
+                        } else {
+                            throw new Error('No active session found');
+                        }
+                    }
+                } else {
+                    success = true;
+                }
+                
+            } catch (error) {
+                console.error('All password update methods failed:', error);
+                errorMessage = error.message || 'Failed to set password';
+                success = false;
             }
+            
         } else {
-            // Regular password change
+            // Regular password change with current password
+            console.log('🔐 Changing password with current password...');
             const { error } = await client.auth.updateUser({
-                password: newPassword
+                password: newPassword,
+                currentPassword: currentPassword
             });
             
             if (error) {
-                // If the error is about needing current password, try with it
-                if (error.message.includes('current password')) {
-                    const { error: pwdError } = await client.auth.updateUser({
-                        password: newPassword,
-                        currentPassword: currentPassword
-                    });
-                    if (pwdError) throw pwdError;
-                    success = true;
-                } else {
-                    throw error;
-                }
+                // Try without current password as fallback
+                const { error: fallbackError } = await client.auth.updateUser({
+                    password: newPassword
+                });
+                if (fallbackError) throw fallbackError;
+                success = true;
             } else {
                 success = true;
             }
         }
         
         if (success) {
+            console.log('✅ Password updated successfully!');
+            
             // Show success
             const box = document.querySelector('.password-change-box');
             if (box) {
@@ -1304,7 +1144,7 @@ async function handlePasswordChange(event) {
                         <span class="checkmark">✅</span>
                         <h3>Password Updated!</h3>
                         <p>${isFirstLogin ? 'Your password has been set successfully. You can now use the application.' : 'Your password has been changed successfully.'}</p>
-                        <button class="btn-password-save" onclick="closePasswordChangeModal()" style="margin-top: 20px; padding: 12px 40px;">
+                        <button class="btn-password-save" onclick="handlePasswordChangeSuccess()" style="margin-top: 20px; padding: 12px 40px;">
                             ${isFirstLogin ? 'Continue to App' : 'Done'}
                         </button>
                     </div>
@@ -1313,28 +1153,28 @@ async function handlePasswordChange(event) {
             
             showNotification(`✅ ${isFirstLogin ? 'Password set' : 'Password updated'} successfully!`, 'success');
             
-            // Store that user has set password
-            if (isFirstLogin && currentUserProfile) {
-                // Update profile to mark that password has been set
-                try {
-                    await client
-                        .from('user_profiles')
-                        .update({ 
-                            password_set: true,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('user_id', currentUser.id);
-                } catch (e) {
-                    console.warn('Could not update password_set flag:', e);
-                }
+            // Update profile to mark password as set
+            try {
+                await client
+                    .from('user_profiles')
+                    .update({ 
+                        password_set: true,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('user_id', currentUser.id);
+                console.log('✅ Password_set flag updated in profile');
+            } catch (e) {
+                console.warn('Could not update password_set flag:', e);
             }
             
             // Auto close after 3 seconds
             setTimeout(() => {
                 if (document.querySelector('.password-success')) {
-                    closePasswordChangeModal();
+                    handlePasswordChangeSuccess();
                 }
             }, 3000);
+        } else {
+            throw new Error(errorMessage || 'Failed to update password');
         }
         
     } catch (error) {
@@ -1350,10 +1190,30 @@ async function handlePasswordChange(event) {
 }
 
 // ============================================================
-// CHECK IF PASSWORD CHANGE IS REQUIRED
+// HANDLE PASSWORD CHANGE SUCCESS
 // ============================================================
+function handlePasswordChangeSuccess() {
+    console.log('✅ Password change successful, closing modal...');
+    closePasswordChangeModal();
+    
+    // Make sure login overlay stays hidden
+    const loginOverlay = document.getElementById('login-overlay');
+    if (loginOverlay) {
+        loginOverlay.style.display = 'none';
+        loginOverlay.classList.add('hidden');
+    }
+    
+    // Show a welcome notification
+    showNotification(`✅ Welcome to Planning Monitor, ${currentUserProfile?.display_name || 'User'}!`, 'success');
+    
+    // Reload the page to refresh the application state
+    setTimeout(() => {
+        window.location.reload();
+    }, 1500);
+}
+
 // ============================================================
-// FIRST LOGIN DETECTION & PASSWORD SETUP
+// CHECK IF PASSWORD CHANGE IS REQUIRED - FIXED
 // ============================================================
 
 async function checkPasswordChangeRequired() {
@@ -1369,11 +1229,9 @@ async function checkPasswordChangeRequired() {
     
     // Check multiple conditions for first login
     const needsPasswordSet = 
-        // 1. Check password_set flag in profile
         currentUserProfile.password_set === false ||
         currentUserProfile.password_set === null ||
         currentUserProfile.password_set === undefined ||
-        // 2. Check first_login flag in user metadata
         currentUser?.user_metadata?.first_login === true;
     
     console.log(`🔐 Password set flag: ${currentUserProfile.password_set}`);
@@ -1382,10 +1240,18 @@ async function checkPasswordChangeRequired() {
     
     if (needsPasswordSet) {
         console.log('🔐 Password change required for first login');
-        // Show modal with slight delay
+        
+        // Show modal with slight delay - HIDE login overlay first
         setTimeout(() => {
+            // Make sure login overlay is hidden
+            const loginOverlay = document.getElementById('login-overlay');
+            if (loginOverlay) {
+                loginOverlay.style.display = 'none';
+                loginOverlay.classList.add('hidden');
+            }
+            
             showPasswordChangeModal(currentUser, true);
-        }, 1000);
+        }, 800);
         return true;
     }
     
