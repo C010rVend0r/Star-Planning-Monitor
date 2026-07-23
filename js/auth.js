@@ -610,7 +610,7 @@ function showLoginUI() {
         loginOverlay.innerHTML = `
             <div class="login-modal">
                 <div class="login-header">
-                    <h2>🏭 Planning Monitor</h2>
+                    <h2>📈 Planning Monitor</h2>
                     <p>Please sign in to continue</p>
                 </div>
                 <form id="login-form" onsubmit="handleLogin(event)">
