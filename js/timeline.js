@@ -59,6 +59,76 @@ let pendingTimelineIds = new Set();
 let isUpdatingCompletedJobs = false;
 
 // ============================================================
+// AUTO-SAVE HELPER - IMMEDIATE SAVE WITH DEBOUNCE
+// ============================================================
+let immediateSaveTimeout = null;
+
+function triggerImmediateSave() {
+    // Clear any pending save
+    if (immediateSaveTimeout) {
+        clearTimeout(immediateSaveTimeout);
+        immediateSaveTimeout = null;
+    }
+    
+    // Use a short debounce (500ms) to batch rapid changes
+    immediateSaveTimeout = setTimeout(() => {
+        immediateSaveTimeout = null;
+        console.log('💾 Triggering immediate auto-save after timeline change...');
+        
+        // First try scheduleAutoSave if available (debounced)
+        if (typeof scheduleAutoSave === 'function') {
+            scheduleAutoSave();
+        }
+        
+        // Also do an immediate save for schedules specifically
+        saveSchedulesImmediately().then(() => {
+            console.log('✅ Schedules saved immediately after drag/drop');
+        }).catch(err => {
+            console.warn('⚠️ Immediate schedule save failed:', err.message);
+        });
+    }, 500);
+}
+
+// ============================================================
+// IMMEDIATE SCHEDULE SAVE
+// ============================================================
+async function saveSchedulesImmediately() {
+    try {
+        const schedulesToSave = {};
+        for (const [jobId, data] of Object.entries(jobSchedule)) {
+            if (!data.startTime || !data.endTime) continue;
+            
+            schedulesToSave[jobId] = {
+                start_time: new Date(data.startTime).toISOString(),
+                end_time: new Date(data.endTime).toISOString(),
+                timeline_id: data.timelineId || '',
+                is_printed: data.isPrinted || false
+            };
+        }
+        
+        if (Object.keys(schedulesToSave).length === 0) return;
+        
+        // Use the batch save function
+        if (typeof supabaseSaveMultipleSchedules === 'function') {
+            const success = await supabaseSaveMultipleSchedules(schedulesToSave);
+            if (success) {
+                console.log(`✅ Saved ${Object.keys(schedulesToSave).length} schedules immediately`);
+            }
+        } else {
+            // Fallback to individual saves
+            for (const [jobId, data] of Object.entries(schedulesToSave)) {
+                if (typeof supabaseSaveSchedule === 'function') {
+                    await supabaseSaveSchedule(jobId, data);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('❌ Immediate schedule save error:', error);
+        throw error;
+    }
+}
+
+// ============================================================
 // PRIORITY SORTING FUNCTION
 // ============================================================
 function sortTimelineJobsByPriority(timeline) {
@@ -255,10 +325,6 @@ function generateTimelineRuler(timeline) {
 // ============================================================
 // NOW INDICATOR - WITH PERCENTAGE (ACCURATE POSITION)
 // ============================================================
-// ============================================================
-// ============================================================
-// NOW INDICATOR - WITH PERCENTAGE BASED ON CURRENT JOB PROGRESS
-// ============================================================
 function updateNowIndicatorPosition(timeline) {
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -267,7 +333,6 @@ function updateNowIndicatorPosition(timeline) {
     const container = timeline.closest('.timeline-container');
     if (!container) return;
     
-    // Get or create ruler
     let ruler = container.querySelector('.timeline-ruler');
     if (!ruler) {
         generateTimelineRuler(timeline);
@@ -277,7 +342,6 @@ function updateNowIndicatorPosition(timeline) {
     
     const jobs = timeline.querySelectorAll('.job:not(.job-printed)');
     
-    // Get or create marker
     let marker = ruler.querySelector('.ruler-now-marker');
     if (!marker) {
         marker = document.createElement('div');
@@ -293,7 +357,6 @@ function updateNowIndicatorPosition(timeline) {
     
     marker.style.display = 'block';
     
-    // Get dimensions
     const containerRect = container.getBoundingClientRect();
     const scrollLeft = container.scrollLeft || 0;
     const totalWidth = Math.max(ruler.scrollWidth, timeline.scrollWidth, container.scrollWidth, 800);
@@ -304,7 +367,6 @@ function updateNowIndicatorPosition(timeline) {
     let currentJobName = '';
     let jobProgress = 0;
     
-    // Find which job the current time falls into
     for (let i = 0; i < jobs.length; i++) {
         const job = jobs[i];
         const jobId = job.getAttribute('data-job-id');
@@ -316,7 +378,6 @@ function updateNowIndicatorPosition(timeline) {
         const jobData = jobDatabase[jobId];
         const jobName = jobData?.name || jobId;
         
-        // If NOW is inside this job
         if (nowTime >= jobStart && nowTime <= jobEnd) {
             const jobRect = job.getBoundingClientRect();
             const jobLeft = jobRect.left - containerRect.left + scrollLeft;
@@ -325,11 +386,9 @@ function updateNowIndicatorPosition(timeline) {
             const elapsed = nowTime - jobStart;
             const progress = jobDuration > 0 ? elapsed / jobDuration : 0;
             
-            // ⭐ Position on the ruler (visual position)
             const posPx = jobLeft + (progress * jobWidth);
             positionPercentage = (posPx / totalWidth) * 100;
             
-            // ⭐ PROGRESS PERCENTAGE = progress through the current job (0-100%)
             progressPercent = Math.round(progress * 100);
             jobProgress = progress;
             currentJobName = jobName;
@@ -338,7 +397,6 @@ function updateNowIndicatorPosition(timeline) {
         }
     }
     
-    // If NOW is not inside any job, find the gap or edge
     if (!foundPosition) {
         let foundGap = false;
         
@@ -369,7 +427,7 @@ function updateNowIndicatorPosition(timeline) {
                 const posPx = currentRightPx + (gapProgress * (nextLeftPx - currentRightPx));
                 positionPercentage = (posPx / totalWidth) * 100;
                 foundGap = true;
-                // ⭐ In gap between jobs, show overall progress
+                
                 const firstId = jobs[0].getAttribute('data-job-id');
                 const lastId = jobs[jobs.length - 1].getAttribute('data-job-id');
                 if (jobSchedule[firstId] && jobSchedule[lastId]) {
@@ -419,11 +477,9 @@ function updateNowIndicatorPosition(timeline) {
         }
     }
     
-    // Clamp position
     positionPercentage = Math.max(0.5, Math.min(99.5, positionPercentage));
     progressPercent = Math.max(0, Math.min(100, progressPercent));
     
-    // Store position data
     nowIndicatorPositions[timeline.id] = {
         position: positionPercentage,
         time: timeString,
@@ -436,11 +492,9 @@ function updateNowIndicatorPosition(timeline) {
         timestamp: now.getTime()
     };
     
-    // Update marker position on the ruler
     marker.style.left = positionPercentage + '%';
     marker.style.transition = 'left 0.5s ease';
     
-    // Update label with percentage
     let label = marker.querySelector('.ruler-now-label');
     if (!label) {
         label = document.createElement('span');
@@ -448,10 +502,8 @@ function updateNowIndicatorPosition(timeline) {
         marker.appendChild(label);
     }
     
-    // ⭐ Show progress percentage (based on current job or overall)
     label.textContent = `🔴 NOW ${timeString}  (${progressPercent}%)`;
     
-    // Color coding based on progress
     if (progressPercent < 25) {
         label.style.color = '#28a745';
         label.style.borderColor = 'rgba(40, 167, 69, 0.4)';
@@ -470,7 +522,6 @@ function updateNowIndicatorPosition(timeline) {
         label.style.animation = 'pulse-percentage 1s ease-in-out infinite';
     }
     
-    // Auto-scroll to show NOW indicator if enabled
     if (autoScrollEnabled) {
         const containerWidth = container.clientWidth;
         const markerPosition = (positionPercentage / 100) * totalWidth;
@@ -488,6 +539,7 @@ function updateNowIndicatorPosition(timeline) {
         }
     }
 }
+
 // ============================================================
 // UPDATE ALL NOW INDICATORS
 // ============================================================
@@ -886,12 +938,16 @@ function addJobToTimelineWithSchedule(jobId, timelineId, startTime, insertBefore
     updateStatistics();
     applySmartZoom();
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
+    
+    // ⭐ CRITICAL FIX: Trigger auto-save after adding job
+    triggerImmediateSave();
 }
 
 function handleFeedToTimeline(jobId, timeline, e) {
     const existingJobOnTimeline = document.querySelector(`.job[data-job-id="${jobId}"]`);
     if (existingJobOnTimeline) {
-        showNotification(`⚠️ Job "${jobDatabase[jobId]?.name || jobId}" is already on the timeline!`, 'warning');
+        const jobName = jobDatabase[jobId]?.name || jobId;
+        showNotification(`⚠️ "${jobName}" is already on the timeline!`, 'warning');
         return;
     }
     if (!jobDatabase[jobId]) {
@@ -973,6 +1029,9 @@ function handleFeedToTimeline(jobId, timeline, e) {
     const jobName = jobDatabase[jobId]?.name || jobId;
     showNotification(`✅ "${jobName}" added to Machine ${machineNumber} (Priority: ${newPriority})`, 'success');
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
+    
+    // ⭐ CRITICAL FIX: Trigger auto-save after feed to timeline
+    triggerImmediateSave();
 }
 
 function handleJobReorder(jobId, targetTimeline, e) {
@@ -1036,6 +1095,9 @@ function handleJobReorder(jobId, targetTimeline, e) {
     updateStatistics();
     applySmartZoom();
     setTimeout(() => updateAllTimelineScrollPositions(), 300);
+    
+    // ⭐ CRITICAL FIX: Trigger auto-save after job reorder
+    triggerImmediateSave();
 }
 
 function returnJobToFeed(jobElement) {
@@ -1078,6 +1140,9 @@ function returnJobToFeed(jobElement) {
         
         showNotification(`↩️ "${jobData.name || jobId}" returned to feed (PL: Unplanned)`, 'info');
         setTimeout(() => updateAllTimelineScrollPositions(), 300);
+        
+        // ⭐ CRITICAL FIX: Trigger auto-save after returning job to feed
+        triggerImmediateSave();
     }
 }
 
@@ -2210,5 +2275,8 @@ window.checkJobOnTimeline = checkJobOnTimeline;
 window.getDragAfterElement = getDragAfterElement;
 window.forceCompleteCheck = forceCompleteCheck;
 window.updateCompletedJobs = updateCompletedJobs;
+window.triggerImmediateSave = triggerImmediateSave;
+window.saveSchedulesImmediately = saveSchedulesImmediately;
 
 console.log('✅ timeline.js loaded - Forced completion check available. Run forceCompleteCheck() in console.');
+console.log('💾 Drag & drop changes now trigger immediate auto-save to Supabase.');
