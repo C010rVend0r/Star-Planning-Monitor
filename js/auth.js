@@ -877,6 +877,676 @@ async function toggleUserActive(userId, isActive) {
 }
 
 // ============================================================
+// PASSWORD CHANGE MODAL - For first-time login
+// ============================================================
+
+let tempPasswordUser = null;
+
+function showPasswordChangeModal(user, isFirstLogin = false) {
+    tempPasswordUser = user;
+    
+    let modal = document.getElementById('password-change-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'password-change-modal';
+        modal.className = 'password-change-modal';
+        modal.innerHTML = `
+            <div class="password-change-overlay">
+                <div class="password-change-box">
+                    <div class="password-change-header">
+                        <h2>🔐 Set Your Password</h2>
+                        <p id="password-change-message">${isFirstLogin ? 'Welcome! Please set your password to continue.' : 'Change your password'}</p>
+                    </div>
+                    <form id="password-change-form" onsubmit="handlePasswordChange(event)">
+                        <div class="password-field">
+                            <label for="current-password">Current Password</label>
+                            <input type="password" id="current-password" placeholder="Enter current password" 
+                                   ${isFirstLogin ? 'style="display:none;"' : ''}>
+                            <small ${isFirstLogin ? 'style="display:none;"' : ''}>Required for security verification</small>
+                        </div>
+                        <div class="password-field">
+                            <label for="new-password">New Password</label>
+                            <input type="password" id="new-password" placeholder="Enter new password" required>
+                            <small>Must be at least 6 characters</small>
+                        </div>
+                        <div class="password-field">
+                            <label for="confirm-password">Confirm Password</label>
+                            <input type="password" id="confirm-password" placeholder="Confirm new password" required>
+                        </div>
+                        <div class="password-strength" id="password-strength"></div>
+                        <div class="password-error" id="password-change-error"></div>
+                        <div class="password-buttons">
+                            <button type="button" class="btn-password-cancel" id="password-cancel-btn" 
+                                    ${isFirstLogin ? 'style="display:none;"' : ''}>
+                                Cancel
+                            </button>
+                            <button type="submit" class="btn-password-save" id="password-save-btn">
+                                ${isFirstLogin ? 'Set Password & Continue' : 'Update Password'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        // Add styles
+        if (!document.getElementById('password-change-styles')) {
+            const style = document.createElement('style');
+            style.id = 'password-change-styles';
+            style.textContent = `
+                .password-change-modal {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 10001;
+                    display: none;
+                    animation: fadeIn 0.3s ease;
+                }
+                .password-change-modal.active {
+                    display: block;
+                }
+                .password-change-overlay {
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.6);
+                    backdrop-filter: blur(8px);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .password-change-box {
+                    background: white;
+                    border-radius: 20px;
+                    padding: 40px;
+                    width: 100%;
+                    max-width: 440px;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                    animation: slideUp 0.4s ease;
+                }
+                @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(30px) scale(0.95); }
+                    to { opacity: 1; transform: translateY(0) scale(1); }
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                .password-change-header {
+                    text-align: center;
+                    margin-bottom: 28px;
+                }
+                .password-change-header h2 {
+                    font-size: 22px;
+                    color: #2c3e50;
+                    margin: 0 0 8px 0;
+                }
+                .password-change-header p {
+                    color: #6c757d;
+                    margin: 0;
+                    font-size: 14px;
+                }
+                .password-field {
+                    margin-bottom: 18px;
+                }
+                .password-field label {
+                    display: block;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #2c3e50;
+                    margin-bottom: 4px;
+                }
+                .password-field input {
+                    width: 100%;
+                    padding: 12px 16px;
+                    border: 2px solid #e9ecef;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    transition: border-color 0.2s, box-shadow 0.2s;
+                    box-sizing: border-box;
+                }
+                .password-field input:focus {
+                    outline: none;
+                    border-color: #667eea;
+                    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+                }
+                .password-field input.error {
+                    border-color: #dc3545;
+                }
+                .password-field small {
+                    color: #6c757d;
+                    font-size: 12px;
+                    display: block;
+                    margin-top: 4px;
+                }
+                .password-strength {
+                    height: 4px;
+                    border-radius: 4px;
+                    background: #e9ecef;
+                    margin: 4px 0 12px 0;
+                    transition: all 0.3s;
+                    overflow: hidden;
+                }
+                .password-strength .strength-bar {
+                    height: 100%;
+                    border-radius: 4px;
+                    transition: width 0.3s, background 0.3s;
+                    width: 0%;
+                }
+                .password-strength-text {
+                    font-size: 12px;
+                    margin-top: 2px;
+                    text-align: right;
+                    color: #6c757d;
+                }
+                .password-error {
+                    color: #dc3545;
+                    font-size: 13px;
+                    margin: 8px 0;
+                    text-align: center;
+                    min-height: 20px;
+                }
+                .password-buttons {
+                    display: flex;
+                    gap: 12px;
+                    margin-top: 20px;
+                }
+                .btn-password-cancel {
+                    flex: 1;
+                    padding: 12px;
+                    border: 2px solid #e9ecef;
+                    border-radius: 10px;
+                    background: white;
+                    color: #6c757d;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .btn-password-cancel:hover {
+                    background: #f8f9fa;
+                    border-color: #dee2e6;
+                }
+                .btn-password-save {
+                    flex: 2;
+                    padding: 12px;
+                    border: none;
+                    border-radius: 10px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .btn-password-save:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+                }
+                .btn-password-save:disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                    transform: none;
+                }
+                .password-success {
+                    text-align: center;
+                    padding: 20px 0;
+                }
+                .password-success .checkmark {
+                    font-size: 48px;
+                    color: #28a745;
+                    margin-bottom: 12px;
+                    display: block;
+                }
+                .password-success h3 {
+                    color: #28a745;
+                    margin: 0 0 8px 0;
+                }
+                .password-success p {
+                    color: #6c757d;
+                    margin: 0;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Setup event listeners
+        const cancelBtn = document.getElementById('password-cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', closePasswordChangeModal);
+        }
+        
+        // Close on overlay click
+        const overlay = document.querySelector('.password-change-overlay');
+        if (overlay) {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === this && !isFirstLogin) {
+                    closePasswordChangeModal();
+                }
+            });
+        }
+        
+        // Password strength indicator
+        const newPasswordInput = document.getElementById('new-password');
+        if (newPasswordInput) {
+            newPasswordInput.addEventListener('input', function() {
+                updatePasswordStrength(this.value);
+            });
+        }
+        
+        // Confirm password validation
+        const confirmInput = document.getElementById('confirm-password');
+        if (confirmInput) {
+            confirmInput.addEventListener('input', function() {
+                const newPwd = document.getElementById('new-password').value;
+                if (this.value && this.value !== newPwd) {
+                    this.classList.add('error');
+                } else {
+                    this.classList.remove('error');
+                }
+            });
+        }
+    }
+    
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    
+    // Focus first input
+    setTimeout(() => {
+        const currentPwd = document.getElementById('current-password');
+        const newPwd = document.getElementById('new-password');
+        if (currentPwd && !isFirstLogin) {
+            currentPwd.focus();
+        } else if (newPwd) {
+            newPwd.focus();
+        }
+    }, 300);
+}
+
+function closePasswordChangeModal() {
+    const modal = document.getElementById('password-change-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        tempPasswordUser = null;
+    }
+}
+
+function updatePasswordStrength(password) {
+    const strengthBar = document.querySelector('.password-strength');
+    if (!strengthBar) return;
+    
+    let bar = strengthBar.querySelector('.strength-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'strength-bar';
+        strengthBar.appendChild(bar);
+    }
+    
+    let strength = 0;
+    let color = '#dc3545';
+    let text = 'Weak';
+    
+    if (password.length >= 8) strength += 25;
+    if (password.length >= 12) strength += 15;
+    if (/[A-Z]/.test(password)) strength += 20;
+    if (/[a-z]/.test(password)) strength += 15;
+    if (/[0-9]/.test(password)) strength += 15;
+    if (/[^A-Za-z0-9]/.test(password)) strength += 10;
+    
+    strength = Math.min(100, strength);
+    
+    if (strength < 30) { color = '#dc3545'; text = 'Weak'; }
+    else if (strength < 50) { color = '#fd7e14'; text = 'Fair'; }
+    else if (strength < 70) { color = '#ffc107'; text = 'Good'; }
+    else if (strength < 90) { color = '#17a2b8'; text = 'Strong'; }
+    else { color = '#28a745'; text = 'Very Strong'; }
+    
+    bar.style.width = strength + '%';
+    bar.style.background = color;
+    
+    let textEl = strengthBar.parentElement.querySelector('.password-strength-text');
+    if (!textEl) {
+        textEl = document.createElement('div');
+        textEl.className = 'password-strength-text';
+        strengthBar.parentElement.appendChild(textEl);
+    }
+    textEl.textContent = password.length > 0 ? `Strength: ${text} (${strength}%)` : '';
+    textEl.style.color = color;
+}
+
+async function handlePasswordChange(event) {
+    event.preventDefault();
+    
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    const currentPassword = document.getElementById('current-password').value;
+    const errorEl = document.getElementById('password-change-error');
+    const saveBtn = document.getElementById('password-save-btn');
+    
+    // Clear previous errors
+    if (errorEl) errorEl.textContent = '';
+    
+    // Validate
+    if (newPassword.length < 6) {
+        if (errorEl) errorEl.textContent = 'Password must be at least 6 characters';
+        return;
+    }
+    
+    if (newPassword !== confirmPassword) {
+        if (errorEl) errorEl.textContent = 'Passwords do not match';
+        return;
+    }
+    
+    // Check if it's first login (current password field hidden)
+    const isFirstLogin = document.getElementById('current-password').style.display === 'none';
+    
+    // Disable button
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Updating...';
+    }
+    
+    try {
+        const client = initSupabase();
+        let success = false;
+        
+        if (isFirstLogin) {
+            // First login - user doesn't have a password yet
+            // We need to use the admin API to set the password
+            // This requires a service role key
+            const { error } = await client.auth.admin.updateUserById(
+                currentUser.id,
+                { password: newPassword }
+            );
+            
+            if (error) {
+                // Fallback: Try the regular update if admin fails
+                const { error: updateError } = await client.auth.updateUser({
+                    password: newPassword
+                });
+                if (updateError) throw updateError;
+                success = true;
+            } else {
+                success = true;
+            }
+        } else {
+            // Regular password change
+            const { error } = await client.auth.updateUser({
+                password: newPassword
+            });
+            
+            if (error) {
+                // If the error is about needing current password, try with it
+                if (error.message.includes('current password')) {
+                    const { error: pwdError } = await client.auth.updateUser({
+                        password: newPassword,
+                        currentPassword: currentPassword
+                    });
+                    if (pwdError) throw pwdError;
+                    success = true;
+                } else {
+                    throw error;
+                }
+            } else {
+                success = true;
+            }
+        }
+        
+        if (success) {
+            // Show success
+            const box = document.querySelector('.password-change-box');
+            if (box) {
+                box.innerHTML = `
+                    <div class="password-success">
+                        <span class="checkmark">✅</span>
+                        <h3>Password Updated!</h3>
+                        <p>${isFirstLogin ? 'Your password has been set successfully. You can now use the application.' : 'Your password has been changed successfully.'}</p>
+                        <button class="btn-password-save" onclick="closePasswordChangeModal()" style="margin-top: 20px; padding: 12px 40px;">
+                            ${isFirstLogin ? 'Continue to App' : 'Done'}
+                        </button>
+                    </div>
+                `;
+            }
+            
+            showNotification(`✅ ${isFirstLogin ? 'Password set' : 'Password updated'} successfully!`, 'success');
+            
+            // Store that user has set password
+            if (isFirstLogin && currentUserProfile) {
+                // Update profile to mark that password has been set
+                try {
+                    await client
+                        .from('user_profiles')
+                        .update({ 
+                            password_set: true,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('user_id', currentUser.id);
+                } catch (e) {
+                    console.warn('Could not update password_set flag:', e);
+                }
+            }
+            
+            // Auto close after 3 seconds
+            setTimeout(() => {
+                if (document.querySelector('.password-success')) {
+                    closePasswordChangeModal();
+                }
+            }, 3000);
+        }
+        
+    } catch (error) {
+        console.error('❌ Password change error:', error);
+        if (errorEl) {
+            errorEl.textContent = error.message || 'Failed to update password. Please try again.';
+        }
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = isFirstLogin ? 'Set Password & Continue' : 'Update Password';
+        }
+    }
+}
+
+// ============================================================
+// CHECK IF PASSWORD CHANGE IS REQUIRED
+// ============================================================
+// ============================================================
+// FIRST LOGIN DETECTION & PASSWORD SETUP
+// ============================================================
+
+async function checkPasswordChangeRequired() {
+    console.log('🔐 Checking if password change is required...');
+    
+    if (!currentUser || !currentUserProfile) {
+        console.log('⚠️ No user or profile found');
+        return false;
+    }
+    
+    console.log('📊 User profile:', currentUserProfile);
+    console.log('📊 User metadata:', currentUser?.user_metadata);
+    
+    // Check multiple conditions for first login
+    const needsPasswordSet = 
+        // 1. Check password_set flag in profile
+        currentUserProfile.password_set === false ||
+        currentUserProfile.password_set === null ||
+        currentUserProfile.password_set === undefined ||
+        // 2. Check first_login flag in user metadata
+        currentUser?.user_metadata?.first_login === true;
+    
+    console.log(`🔐 Password set flag: ${currentUserProfile.password_set}`);
+    console.log(`🔐 First login flag: ${currentUser?.user_metadata?.first_login}`);
+    console.log(`🔐 Needs password set: ${needsPasswordSet}`);
+    
+    if (needsPasswordSet) {
+        console.log('🔐 Password change required for first login');
+        // Show modal with slight delay
+        setTimeout(() => {
+            showPasswordChangeModal(currentUser, true);
+        }, 1000);
+        return true;
+    }
+    
+    return false;
+}
+
+// Override the login function to check for password change
+const originalLogin = login;
+login = async function(email, password) {
+    try {
+        const client = initSupabase();
+        const { data, error } = await client.auth.signInWithPassword({
+            email: email,
+            password: password
+        });
+        
+        if (error) throw error;
+        
+        currentUser = data.user;
+        await loadUserProfile(currentUser.id);
+        notifyAuthChange('signed_in', currentUser);
+        hideLoginUI();
+        showNotification(`✅ Welcome, ${currentUserProfile?.display_name || email}!`, 'success');
+        
+        // Check if password change is required
+        setTimeout(async () => {
+            await checkPasswordChangeRequired();
+        }, 500);
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Login error:', error);
+        showNotification(`❌ Login failed: ${error.message}`, 'error');
+        return false;
+    }
+};
+
+// Also check after auth state changes
+const originalAuthListener = setupAuthListener;
+setupAuthListener = function() {
+    const client = initSupabase();
+    if (!client) return;
+    
+    client.auth.onAuthStateChange((event, session) => {
+        console.log(`🔐 Auth event: ${event}`);
+        
+        if (event === 'SIGNED_IN' && session) {
+            currentUser = session.user;
+            loadUserProfile(currentUser.id).then(() => {
+                notifyAuthChange('signed_in', currentUser);
+                hideLoginUI();
+                showNotification(`✅ Welcome, ${currentUser.email}!`, 'success');
+                // Check if password change is required
+                checkPasswordChangeRequired();
+            });
+        } else if (event === 'SIGNED_OUT') {
+            currentUser = null;
+            currentUserProfile = null;
+            notifyAuthChange('signed_out', null);
+            showLoginUI();
+        } else if (event === 'TOKEN_REFRESHED') {
+            console.log('🔄 Token refreshed');
+        } else if (event === 'USER_UPDATED') {
+            if (session) {
+                currentUser = session.user;
+                loadUserProfile(currentUser.id);
+            }
+        }
+    });
+};
+
+// Add password_set column to user_profiles if not exists
+async function ensurePasswordSetColumn() {
+    try {
+        const client = initSupabase();
+        // Check if column exists by trying to select it
+        const { error } = await client
+            .from('user_profiles')
+            .select('password_set')
+            .limit(1);
+        
+        if (error && error.message.includes('column "password_set" does not exist')) {
+            // Column doesn't exist, add it via SQL
+            console.log('📝 Adding password_set column to user_profiles...');
+            // This would need to be done via SQL editor or RPC
+            // For now, we'll handle it gracefully
+        }
+    } catch (e) {
+        console.warn('Could not check password_set column:', e);
+    }
+}
+
+// ============================================================
+// USER MANAGEMENT (Admin only)
+// ============================================================
+
+async function createUser(email, password, displayName, role, uploader = null) {
+    if (!isAdmin()) {
+        showNotification('❌ Only admins can create users', 'error');
+        return false;
+    }
+    
+    try {
+        const client = initSupabase();
+        
+        // Create user in auth
+        const { data: userData, error: userError } = await client.auth.admin.createUser({
+            email: email,
+            password: password,
+            email_confirm: true,
+            user_metadata: {
+                full_name: displayName,
+                first_login: true  // Mark as first login
+            }
+        });
+        
+        if (userError) throw userError;
+        
+        // Create profile
+        const { error: profileError } = await client
+            .from('user_profiles')
+            .insert({
+                user_id: userData.user.id,
+                email: email,
+                display_name: displayName,
+                role: role,
+                uploader: uploader,
+                password_set: false,  // User needs to set password
+                is_active: true
+            });
+        
+        if (profileError) throw profileError;
+        
+        showNotification(`✅ User ${email} created successfully. They will need to set their password on first login.`, 'success');
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Error creating user:', error);
+        showNotification(`❌ Error: ${error.message}`, 'error');
+        return false;
+    }
+}
+
+// Expose create user function
+window.createUser = createUser;
+
+
+// Call this on init
+setTimeout(ensurePasswordSetColumn, 1000);
+
+// Expose password change functions
+window.showPasswordChangeModal = showPasswordChangeModal;
+window.closePasswordChangeModal = closePasswordChangeModal;
+window.handlePasswordChange = handlePasswordChange;
+window.checkPasswordChangeRequired = checkPasswordChangeRequired;
+window.updatePasswordStrength = updatePasswordStrength;
+
+console.log('✅ Password change module loaded');
+
+// ============================================================
 // INITIALIZE AUTH ON LOAD
 // ============================================================
 document.addEventListener('DOMContentLoaded', function() {
