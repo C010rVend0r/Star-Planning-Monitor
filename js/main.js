@@ -13,7 +13,18 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================
 async function initializeApp() {
     console.log('Initializing application...');
+
+    // ============================================================
+    // STEP 0: Initialize Authentication FIRST
+    // ============================================================
+    await initAuth();
     
+    // Check if user is authenticated
+    if (!currentUser) {
+        console.log('🔐 User not authenticated, waiting for login...');
+        // App will be initialized after login via auth listener
+        return;
+    }
     // ============================================================
     // STEP 1: Initialize Supabase and load data
     // ============================================================
@@ -32,6 +43,25 @@ async function initializeApp() {
         showNotification('⚠️ Using local data - connection error', 'error');
     }
     
+    // Add auth listener to re-initialize app after login
+    addAuthListener(async (event, user) => {
+        if (event === 'signed_in' && user) {
+            console.log('🔐 User signed in, initializing app...');
+            setTimeout(async () => {
+                await initializeApp();
+            }, 500);
+        }
+    });
+    
+    // Wrap critical functions with permission checks
+    function checkPermission(permission, actionName) {
+        if (!hasPermission(permission)) {
+            showNotification(`❌ You don't have permission to ${actionName}`, 'error');
+            return false;
+        }
+        return true;
+    }
+
     // ============================================================
     // STEP 1.5: Rebuild timelines from loaded schedules
     // ============================================================
@@ -45,12 +75,9 @@ async function initializeApp() {
     populateProductionFeed();
     
     // ⭐ CREATE FILTER PANEL ON PAGE LOAD (but keep it hidden)
-    // This ensures the filter checkboxes exist when we need to sync them
     if (!document.getElementById('filter-panel')) {
         console.log('Creating filter panel on page load...');
-        // Call toggleFilterPanel to create it
         toggleFilterPanel();
-        // Immediately hide it
         setTimeout(() => {
             const panel = document.getElementById('filter-panel');
             if (panel) {
@@ -60,7 +87,6 @@ async function initializeApp() {
             }
         }, 50);
     }
-    
     
     // Initialize machine elements
     initializeMachineElements();
@@ -77,26 +103,20 @@ async function initializeApp() {
     // Initialize now indicators
     initializeNowIndicators();
     startJobTimeUpdates();
-// ============================================================
-// START DYNAMIC TIME UPDATES WITH AGGRESSIVE COMPLETION CHECK
-// ============================================================
-// Replace the existing startDynamicTimeUpdates() call with this:
+    
+    // Start dynamic time updates with aggressive completion checking
+    startDynamicTimeUpdates();
 
-// Start dynamic time updates with aggressive completion checking
-startDynamicTimeUpdates();
+    // Also run completion check every 10 seconds
+    setInterval(() => {
+        updateCompletedJobs();
+    }, 10000);
 
-// Also run completion check every 10 seconds (in addition to the one in startDynamicTimeUpdates)
-setInterval(() => {
-    updateCompletedJobs();
-}, 10000);
-
-// Run an initial completion check after 3 seconds
-setTimeout(() => {
-    console.log('🔄 Running initial completion check...');
-    updateCompletedJobs();
-}, 3000);
-
-
+    // Run an initial completion check after 3 seconds
+    setTimeout(() => {
+        console.log('🔄 Running initial completion check...');
+        updateCompletedJobs();
+    }, 3000);
 
     updateAllJobColors();
     updateStatistics();
@@ -125,30 +145,32 @@ setTimeout(() => {
     // Update real-time clock
     updateRealTimeIndicator();
     setInterval(updateRealTimeIndicator, 1000);
+    
     // After data loads, run an initial completion check
-setTimeout(() => {
-    console.log('🔄 Running initial completion check...');
-    updateCompletedJobs();
-}, 3000);
+    setTimeout(() => {
+        console.log('🔄 Running initial completion check...');
+        updateCompletedJobs();
+    }, 3000);
 
-// Also run it after any data sync
-if (typeof supabaseSyncAllData === 'function') {
-    const originalSync = supabaseSyncAllData;
-    supabaseSyncAllData = async function(...args) {
-        const result = await originalSync.apply(this, args);
-        setTimeout(() => {
-            updateCompletedJobs();
-        }, 1000);
-        return result;
-    };
-}
+    // Also run it after any data sync
+    if (typeof supabaseSyncAllData === 'function') {
+        const originalSync = supabaseSyncAllData;
+        supabaseSyncAllData = async function(...args) {
+            const result = await originalSync.apply(this, args);
+            setTimeout(() => {
+                updateCompletedJobs();
+            }, 1000);
+            return result;
+        };
+    }
     
     // ============================================================
     // STEP 2: Setup auto-save after data loads
     // ============================================================
     setupAutoSaveTriggers();
-        // THIS LINE TO ENABLE THE FLUSH BUTTON
-        initEmergencyFlush();
+    
+    // THIS LINE TO ENABLE THE FLUSH BUTTON
+    initEmergencyFlush();
 
     console.log('Application initialized successfully');
 }
@@ -156,16 +178,9 @@ if (typeof supabaseSyncAllData === 'function') {
 // ============================================================
 // EMERGENCY FLUSH - Clear all data from database
 // ============================================================
-
-// Add this to main.js or create a separate file
-
 function setupEmergencyFlush() {
     const flushBtn = document.getElementById('emergency-flush-btn');
     if (!flushBtn) return;
-    
-    // Show the button (hidden by default for safety)
-    // You can remove the style="display:none" from HTML or use this:
-    // flushBtn.style.display = 'inline-block';
     
     flushBtn.addEventListener('click', function(e) {
         e.preventDefault();
@@ -174,7 +189,6 @@ function setupEmergencyFlush() {
 }
 
 function showFlushConfirmation() {
-    // Check if modal already exists
     let overlay = document.getElementById('flush-modal-overlay');
     if (overlay) {
         overlay.classList.add('active');
@@ -214,7 +228,6 @@ function showFlushConfirmation() {
     document.body.appendChild(overlay);
     overlay.classList.add('active');
     
-    // Setup event listeners
     const confirmInput = document.getElementById('flush-confirm-input');
     const confirmBtn = document.getElementById('flush-confirm');
     const cancelBtn = document.getElementById('flush-cancel');
@@ -238,12 +251,10 @@ function showFlushConfirmation() {
     cancelBtn.addEventListener('click', closeFlushModal);
     confirmBtn.addEventListener('click', executeFlush);
     
-    // Close on overlay click
     overlay.addEventListener('click', function(e) {
         if (e.target === this) closeFlushModal();
     });
     
-    // Focus the input
     setTimeout(() => confirmInput.focus(), 100);
 }
 
@@ -259,16 +270,13 @@ async function executeFlush() {
     const confirmBtn = document.getElementById('flush-confirm');
     const confirmInput = document.getElementById('flush-confirm-input');
     
-    // Double-check confirmation
     if (confirmInput.value.trim().toUpperCase() !== 'FLUSH') {
         return;
     }
     
-    // Disable button and show progress
     confirmBtn.disabled = true;
     confirmBtn.textContent = 'Flushing...';
     
-    // Show progress in modal
     const modal = document.querySelector('.flush-modal');
     const progressDiv = document.createElement('div');
     progressDiv.className = 'flush-progress';
@@ -277,16 +285,13 @@ async function executeFlush() {
         <div class="progress-text">Deleting all data...</div>
     `;
     
-    // Replace content with progress
     const contentNodes = modal.querySelectorAll('.flush-icon, h2, p, ul, .warning-text, .flush-input-group, .flush-buttons');
     contentNodes.forEach(node => node.style.display = 'none');
     modal.appendChild(progressDiv);
     
     try {
-        // Execute the flush
         const result = await performFlush();
         
-        // Show success
         progressDiv.innerHTML = `
             <div style="color: #28a745; font-size: 48px; margin-bottom: 12px;">✅</div>
             <div class="flush-success">All data flushed successfully!</div>
@@ -304,7 +309,6 @@ async function executeFlush() {
         
         document.getElementById('flush-done').addEventListener('click', function() {
             closeFlushModal();
-            // Reload the page to reset state
             if (confirm('The page will reload to refresh all data. Continue?')) {
                 window.location.reload();
             }
@@ -343,12 +347,11 @@ async function performFlush() {
         awDeleted: 0
     };
     
-    // 1. Delete from child tables first (FOREIGN KEY constraints)
     console.log('🗑️ Deleting schedules...');
     const { error: scheduleError } = await client
         .from('job_schedule')
         .delete()
-        .neq('job_id', 'non-existent-id'); // Delete all
+        .neq('job_id', 'non-existent-id');
     
     if (scheduleError) throw new Error('Failed to delete schedules: ' + scheduleError.message);
     results.schedulesDeleted = 'all';
@@ -362,7 +365,6 @@ async function performFlush() {
     if (speedError) throw new Error('Failed to delete speeds: ' + speedError.message);
     results.speedsDeleted = 'all';
     
-    // 2. Delete parent tables
     console.log('🗑️ Deleting jobs...');
     const { error: jobsError } = await client
         .from('jobs')
@@ -390,7 +392,6 @@ async function performFlush() {
     if (awError) throw new Error('Failed to delete AW data: ' + awError.message);
     results.awDeleted = 'all';
     
-    // 3. Reset upload status (keep the users but reset status)
     console.log('🔄 Resetting upload status...');
     const { error: uploadError } = await client
         .from('upload_status')
@@ -407,7 +408,6 @@ async function performFlush() {
         console.warn('⚠️ Could not reset upload status:', uploadError.message);
     }
     
-    // 4. Re-insert default data
     console.log('📥 Re-inserting default data...');
     try {
         await client
@@ -436,7 +436,6 @@ async function performFlush() {
         console.warn('⚠️ Could not re-insert system config:', e.message);
     }
     
-    // 5. Clear local data
     console.log('🧹 Clearing local data...');
     Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
     Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
@@ -451,10 +450,7 @@ async function performFlush() {
 // ============================================================
 // INITIALIZE FLUSH BUTTON
 // ============================================================
-// Call this from initializeApp() or DOMContentLoaded
-
 function initEmergencyFlush() {
-    // Show the button (if hidden)
     const flushBtn = document.getElementById('emergency-flush-btn');
     if (flushBtn) {
         flushBtn.style.display = 'inline-block';
@@ -465,15 +461,6 @@ function initEmergencyFlush() {
     console.log('⚠️ Emergency Flush button initialized');
 }
 
-// Uncomment this line when you're ready to enable the button
-// document.addEventListener('DOMContentLoaded', initEmergencyFlush);
-
-// Expose functions to window
-window.setupEmergencyFlush = setupEmergencyFlush;
-window.initEmergencyFlush = initEmergencyFlush;
-window.performFlush = performFlush;
-window.showFlushConfirmation = showFlushConfirmation;
-window.closeFlushModal = closeFlushModal;
 // ============================================================
 // REBUILD TIMELINES FROM SCHEDULES
 // ============================================================
@@ -488,17 +475,13 @@ function rebuildTimelinesFromSchedules() {
         return;
     }
     
-    // Clear existing timeline jobs FIRST (both printed and non-printed)
     document.querySelectorAll('.timeline').forEach(timeline => {
         const jobs = timeline.querySelectorAll('.job');
         jobs.forEach(job => {
-            const jobId = job.getAttribute('data-job-id');
-            // Don't delete from jobSchedule here, we're rebuilding from it
             job.remove();
         });
     });
     
-    // Group schedules by timeline
     const groupedByTimeline = {};
     for (const [jobId, schedule] of scheduleEntries) {
         const timelineId = schedule.timelineId;
@@ -508,9 +491,7 @@ function rebuildTimelinesFromSchedules() {
         groupedByTimeline[timelineId].push({ jobId, schedule });
     }
     
-    // Process each timeline
     for (const [timelineId, jobs] of Object.entries(groupedByTimeline)) {
-        // Sort by start time
         jobs.sort((a, b) => a.schedule.startTime - b.schedule.startTime);
         
         const timeline = document.getElementById(timelineId);
@@ -521,7 +502,6 @@ function rebuildTimelinesFromSchedules() {
         
         console.log(`📊 Adding ${jobs.length} jobs to ${timelineId}`);
         
-        // Filter out jobs that are Complete or don't exist in database
         const validJobs = jobs.filter(({ jobId, schedule }) => {
             const jobData = jobDatabase[jobId];
             if (!jobData) {
@@ -530,7 +510,6 @@ function rebuildTimelinesFromSchedules() {
                 return false;
             }
             
-            // ⭐ Skip completed jobs (they should not be on timeline)
             if (jobData.planningStatus === 'Complete' || jobData.isComplete === true) {
                 console.log(`⏭️ Skipping completed job ${jobId} from timeline`);
                 delete jobSchedule[jobId];
@@ -540,33 +519,27 @@ function rebuildTimelinesFromSchedules() {
             return true;
         });
         
-        // Separate printed and non-printed jobs
         const printedJobs = validJobs.filter(j => j.schedule.isPrinted === true);
         const nonPrintedJobs = validJobs.filter(j => j.schedule.isPrinted !== true);
         
-        // ⭐ For printed jobs: keep only the most recent one
         printedJobs.sort((a, b) => b.schedule.endTime - a.schedule.endTime);
         const keptPrinted = printedJobs.slice(0, 1);
         const removedPrinted = printedJobs.slice(1);
         
-        // Remove old printed jobs from schedule
         removedPrinted.forEach(({ jobId }) => {
             delete jobSchedule[jobId];
             console.log(`🗑️ Removed old printed job ${jobId} from ${timelineId}`);
         });
         
-        // Clear timeline
         while (timeline.firstChild) {
             timeline.removeChild(timeline.firstChild);
         }
         
-        // ⭐ Add printed jobs FIRST (left side)
         keptPrinted.forEach(({ jobId, schedule }) => {
             const jobData = jobDatabase[jobId];
             if (!jobData) return;
             
             const jobElement = createJobElement(jobId, jobData);
-            // Ensure it's marked as printed
             if (!jobElement.classList.contains('job-printed')) {
                 jobElement.classList.add('job-printed');
             }
@@ -575,7 +548,6 @@ function rebuildTimelinesFromSchedules() {
             updateJobTimeDisplay(jobId);
         });
         
-        // ⭐ Add non-printed jobs AFTER printed ones
         nonPrintedJobs.forEach(({ jobId, schedule }) => {
             const jobData = jobDatabase[jobId];
             if (!jobData) return;
@@ -585,7 +557,6 @@ function rebuildTimelinesFromSchedules() {
             updateJobTimeDisplay(jobId);
         });
         
-        // Sort non-printed jobs by priority
         const nonPrintedElements = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
         if (nonPrintedElements.length > 1) {
             nonPrintedElements.sort((a, b) => {
@@ -596,23 +567,18 @@ function rebuildTimelinesFromSchedules() {
                 return aPriority - bPriority;
             });
             
-            // Get printed jobs
             const printedEls = Array.from(timeline.querySelectorAll('.job.job-printed'));
             
-            // Clear timeline
             while (timeline.firstChild) {
                 timeline.removeChild(timeline.firstChild);
             }
             
-            // Add printed first, then sorted non-printed
             printedEls.forEach(job => timeline.appendChild(job));
             nonPrintedElements.forEach(job => timeline.appendChild(job));
         }
     }
     
-    // Update all timelines
     document.querySelectorAll('.timeline').forEach(timeline => {
-        // Final check: ensure printed jobs are at the beginning
         const printedJobs = Array.from(timeline.querySelectorAll('.job.job-printed'));
         const nonPrintedJobs = Array.from(timeline.querySelectorAll('.job:not(.job-printed)'));
         
@@ -641,6 +607,7 @@ function rebuildTimelinesFromSchedules() {
     
     console.log('✅ Timelines rebuilt from schedules');
 }
+
 // ============================================================
 // AUTO-SAVE TRIGGERS
 // ============================================================
@@ -761,71 +728,62 @@ function setupEventListeners() {
     document.addEventListener('keydown', handleKeydown);
     document.addEventListener('click', handleClickOutside);
     
-    // Setup drag and drop
+    // Setup drag and drop (using timeline.js version)
     setupDragAndDrop();
     
     // Setup Excel uploads
     console.log('Calling setupExcelUploads...');
     setupExcelUploads();
     
-// In main.js - Update the click handler for timeline jobs
-
-// In main.js - Replace the click handler for feed jobs
-
-document.addEventListener('click', function(e) {
-    const feedJob = e.target.closest('.feed-job');
-    if (feedJob) {
-        // Don't trigger if clicking on inputs, buttons, or status elements
-        if (e.target.closest('input') || e.target.closest('button') || 
-            e.target.closest('.feed-status') || e.target.closest('.feed-pl-status')) {
-            return;
-        }
-        const jobId = feedJob.getAttribute('data-job-id');
-        if (jobId) {
-            e.stopPropagation();
-            const jobData = jobDatabase[jobId];
-            
-            // ✅ If the job is Planned and on timeline, show it on the timeline
-            if (jobData && jobData.planningStatus === 'Planned') {
-                const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
-                if (isOnTimeline) {
-                    console.log('Planned feed job clicked - showing on timeline:', jobId);
-                    showJobOnTimeline(jobId);
+    // Click handlers for feed and timeline jobs
+    document.addEventListener('click', function(e) {
+        const feedJob = e.target.closest('.feed-job');
+        if (feedJob) {
+            if (e.target.closest('input') || e.target.closest('button') || 
+                e.target.closest('.feed-status') || e.target.closest('.feed-pl-status')) {
+                return;
+            }
+            const jobId = feedJob.getAttribute('data-job-id');
+            if (jobId) {
+                e.stopPropagation();
+                const jobData = jobDatabase[jobId];
+                
+                if (jobData && jobData.planningStatus === 'Planned') {
+                    const isOnTimeline = !!document.querySelector(`.job[data-job-id="${jobId}"]`);
+                    if (isOnTimeline) {
+                        console.log('Planned feed job clicked - showing on timeline:', jobId);
+                        showJobOnTimeline(jobId);
+                    } else {
+                        console.log('Planned job not on timeline yet - opening modal:', jobId);
+                        openJobDetailsModal(jobId);
+                    }
                 } else {
-                    // If Planned but not on timeline (shouldn't happen, but just in case)
-                    console.log('Planned job not on timeline yet - opening modal:', jobId);
+                    console.log('Feed job clicked - opening modal:', jobId);
                     openJobDetailsModal(jobId);
                 }
-            } else {
-                // Otherwise open the modal
-                console.log('Feed job clicked - opening modal:', jobId);
-                openJobDetailsModal(jobId);
             }
         }
-    }
-    
-    const timelineJob = e.target.closest('.job');
-    if (timelineJob) {
-        if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
-            return;
-        }
-        const jobId = timelineJob.getAttribute('data-job-id');
-        if (jobId) {
-            e.stopPropagation();
-            const jobData = jobDatabase[jobId];
-            
-            // ✅ If the job is Planned, show it on the timeline
-            if (jobData && jobData.planningStatus === 'Planned') {
-                console.log('Planned job clicked - showing on timeline:', jobId);
-                showJobOnTimeline(jobId);
-            } else {
-                // Otherwise open the modal
-                console.log('Timeline job clicked:', jobId);
-                openJobDetailsModal(jobId);
+        
+        const timelineJob = e.target.closest('.job');
+        if (timelineJob) {
+            if (e.target.closest('input') || e.target.closest('button') || e.target.closest('select')) {
+                return;
+            }
+            const jobId = timelineJob.getAttribute('data-job-id');
+            if (jobId) {
+                e.stopPropagation();
+                const jobData = jobDatabase[jobId];
+                
+                if (jobData && jobData.planningStatus === 'Planned') {
+                    console.log('Planned job clicked - showing on timeline:', jobId);
+                    showJobOnTimeline(jobId);
+                } else {
+                    console.log('Timeline job clicked:', jobId);
+                    openJobDetailsModal(jobId);
+                }
             }
         }
-    }
-});
+    });
 }
 
 function handleKeydown(e) {
@@ -853,398 +811,10 @@ function handleClickOutside(e) {
 }
 
 // ============================================================
-// DRAG AND DROP
-// ============================================================
-function setupDragAndDrop() {
-    console.log('Setting up drag and drop with enhanced features...');
-    
-    let dragScrollInterval = null;
-    let currentDragContainer = null;
-    const SCROLL_SPEED = 20;
-    const SCROLL_MARGIN = 60;
-    
-    document.addEventListener('dragstart', function(e) {
-        const target = e.target.closest('.feed-job, .job');
-        if (target) {
-            const jobId = target.getAttribute('data-job-id');
-            if (target.classList.contains('feed-job')) {
-                const isOnTimeline = checkJobOnTimeline(jobId);
-                if (isOnTimeline) {
-                    target.classList.add('job-already-on-timeline');
-                    const jobName = jobDatabase[jobId]?.name || jobId;
-                    target.setAttribute('title', `⚠️ "${jobName}" is already on the timeline!`);
-                } else {
-                    target.classList.remove('job-already-on-timeline');
-                    target.removeAttribute('title');
-                }
-            }
-            draggedElement = target;
-            target.classList.add('job-dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', jobId);
-        }
-    });
-    
-    document.addEventListener('dragend', function(e) {
-        if (draggedElement) {
-            draggedElement.classList.remove('job-dragging');
-            if (dragOverElement) {
-                dragOverElement.classList.remove('drag-over-before', 'drag-over-after');
-                dragOverElement = null;
-            }
-            document.querySelectorAll('.job').forEach(job => {
-                job.classList.remove('drag-over-before', 'drag-over-after');
-            });
-            draggedElement = null;
-            updateStatistics();
-        }
-        if (dragScrollInterval) {
-            clearInterval(dragScrollInterval);
-            dragScrollInterval = null;
-        }
-        currentDragContainer = null;
-    });
-    
-    document.querySelectorAll('.timeline-container').forEach(container => {
-        container.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            
-            const rect = this.getBoundingClientRect();
-            const mouseX = e.clientX;
-            
-            if (dragScrollInterval) {
-                clearInterval(dragScrollInterval);
-                dragScrollInterval = null;
-            }
-            
-            if (mouseX < rect.left + SCROLL_MARGIN) {
-                dragScrollInterval = setInterval(() => {
-                    this.scrollLeft -= SCROLL_SPEED;
-                }, 16);
-            } else if (mouseX > rect.right - SCROLL_MARGIN) {
-                dragScrollInterval = setInterval(() => {
-                    this.scrollLeft += SCROLL_SPEED;
-                }, 16);
-            }
-            
-            currentDragContainer = this;
-        });
-        
-        container.addEventListener('dragleave', function(e) {
-            if (!this.contains(e.relatedTarget)) {
-                if (dragScrollInterval) {
-                    clearInterval(dragScrollInterval);
-                    dragScrollInterval = null;
-                }
-            }
-        });
-    });
-    
-    document.querySelectorAll('.timeline').forEach(timeline => {
-        const container = timeline.closest('.timeline-container');
-        if (!container) return;
-        
-        timeline.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            
-            if (draggedElement && draggedElement.classList.contains('job') && !draggedElement.classList.contains('job-printed')) {
-                const afterElement = getDragAfterElement(this, e.clientX);
-                const jobs = Array.from(this.querySelectorAll('.job:not(.job-dragging):not(.job-printed)'));
-                
-                jobs.forEach(job => job.classList.remove('drag-over-before', 'drag-over-after'));
-                
-                if (!afterElement) {
-                    const lastJob = jobs[jobs.length - 1];
-                    if (lastJob) {
-                        lastJob.classList.add('drag-over-after');
-                        dragOverElement = lastJob;
-                    }
-                } else {
-                    afterElement.classList.add('drag-over-before');
-                    dragOverElement = afterElement;
-                }
-            }
-        });
-        
-        timeline.addEventListener('dragleave', function(e) {
-            if (!this.contains(e.relatedTarget)) {
-                this.querySelectorAll('.job').forEach(job => {
-                    job.classList.remove('drag-over-before', 'drag-over-after');
-                });
-                dragOverElement = null;
-            }
-        });
-        
-        timeline.addEventListener('drop', function(e) {
-            e.preventDefault();
-            
-            if (dragScrollInterval) {
-                clearInterval(dragScrollInterval);
-                dragScrollInterval = null;
-            }
-            
-            if (draggedElement) {
-                const jobId = draggedElement.getAttribute('data-job-id');
-                
-                if (draggedElement.classList.contains('feed-job')) {
-                    const existingJob = document.querySelector(`.job[data-job-id="${jobId}"]`);
-                    if (existingJob) {
-                        const jobName = jobDatabase[jobId]?.name || jobId;
-                        showNotification(`⚠️ "${jobName}" is already on the timeline!`, 'warning');
-                        this.querySelectorAll('.job').forEach(job => {
-                            job.classList.remove('drag-over-before', 'drag-over-after');
-                        });
-                        dragOverElement = null;
-                        return;
-                    }
-                    handleFeedToTimeline(jobId, this, e);
-                } else if (draggedElement.classList.contains('job') && !draggedElement.classList.contains('job-printed')) {
-                    handleJobReorder(jobId, this, e);
-                }
-                
-                this.querySelectorAll('.job').forEach(job => {
-                    job.classList.remove('drag-over-before', 'drag-over-after');
-                });
-                dragOverElement = null;
-                
-                sortPrintedJobs(this);
-                updateAllJobColors();
-                updateStatistics();
-                applySmartZoom();
-                setTimeout(() => updateAllTimelineScrollPositions(), 300);
-            }
-        });
-    });
-    
-    const productionFeed = document.getElementById('production-feed-list');
-    if (productionFeed) {
-        productionFeed.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-        });
-        
-        productionFeed.addEventListener('drop', function(e) {
-            e.preventDefault();
-            if (draggedElement && draggedElement.classList.contains('job') && !draggedElement.classList.contains('job-printed')) {
-                returnJobToFeed(draggedElement);
-                updateAllJobColors();
-                updateStatistics();
-                applySmartZoom();
-                setTimeout(() => updateAllTimelineScrollPositions(), 300);
-            }
-        });
-    }
-}
-
-function checkJobOnTimeline(jobId) {
-    return !!document.querySelector(`.job[data-job-id="${jobId}"]`);
-}
-
-function getDragAfterElement(container, x) {
-    const draggableElements = [...container.querySelectorAll('.job:not(.job-dragging):not(.job-printed)')];
-    return draggableElements.reduce((closest, child) => {
-        const box = child.getBoundingClientRect();
-        const offset = x - box.left - box.width / 2;
-        if (offset < 0 && offset > closest.offset) {
-            return { offset: offset, element: child };
-        } else {
-            return closest;
-        }
-    }, { offset: Number.NEGATIVE_INFINITY }).element;
-}
-
-// main.js - Updated handleFeedToTimeline function
-function handleFeedToTimeline(jobId, timeline, e) {
-    const existingJobOnTimeline = document.querySelector(`.job[data-job-id="${jobId}"]`);
-    if (existingJobOnTimeline) {
-        showNotification(`⚠️ Job "${jobDatabase[jobId]?.name || jobId}" is already on the timeline!`, 'warning');
-        return;
-    }
-    if (!jobDatabase[jobId]) {
-        showNotification(`❌ Job "${jobId}" not found in database!`, 'error');
-        return;
-    }
-    
-    updateJobPLStatus(jobId, 'Planned');
-    
-    const machineNumber = timeline.id.replace('timeline-', '');
-    
-    if (jobDatabase[jobId]) {
-        jobDatabase[jobId].machine = machineNumber;
-    }
-    if (plDatabase[jobId]) {
-        plDatabase[jobId].machine = machineNumber;
-    }
-    
-    const activeJobs = timeline.querySelectorAll('.job:not(.job-printed)');
-    let newStartTime;
-    let insertBeforeElement = null;
-    
-    if (activeJobs.length > 0) {
-        const afterElement = getDragAfterElement(timeline, e.clientX);
-        
-        if (afterElement) {
-            insertBeforeElement = afterElement;
-            const insertIndex = Array.from(timeline.children).indexOf(afterElement);
-            
-            let prevJob = null;
-            for (let i = insertIndex - 1; i >= 0; i--) {
-                const child = timeline.children[i];
-                if (child.classList.contains('job') && !child.classList.contains('job-dragging')) {
-                    prevJob = child;
-                    break;
-                }
-            }
-            
-            if (prevJob && prevJob.classList.contains('job') && !prevJob.classList.contains('job-printed')) {
-                const prevJobId = prevJob.getAttribute('data-job-id');
-                newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
-            } else {
-                const printedJobs = timeline.querySelectorAll('.job.job-printed');
-                if (printedJobs.length > 0) {
-                    const lastPrinted = printedJobs[printedJobs.length - 1];
-                    const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-                    newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
-                } else {
-                    newStartTime = new Date().getTime();
-                }
-            }
-        } else {
-            const lastJob = activeJobs[activeJobs.length - 1];
-            const lastJobId = lastJob.getAttribute('data-job-id');
-            newStartTime = jobSchedule[lastJobId]?.endTime || new Date().getTime();
-        }
-    } else {
-        const printedJobs = timeline.querySelectorAll('.job.job-printed');
-        if (printedJobs.length > 0) {
-            const lastPrinted = printedJobs[printedJobs.length - 1];
-            const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-            newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
-        } else {
-            newStartTime = new Date().getTime();
-        }
-    }
-    
-    addJobToTimelineWithSchedule(jobId, timeline.id, newStartTime, insertBeforeElement);
-    rescheduleTimelineJobs(timeline.id);
-    updateAllJobColors();
-    updateStatistics();
-    applySmartZoom();
-    
-    const jobName = jobDatabase[jobId]?.name || jobId;
-    showNotification(`✅ "${jobName}" added to Machine ${machineNumber} (PL: Planned)`, 'success');
-    setTimeout(() => updateAllTimelineScrollPositions(), 300);
-}
-
-// main.js - Updated handleJobReorder function
-function handleJobReorder(jobId, targetTimeline, e) {
-    const oldTimeline = draggedElement.parentElement;
-    const afterElement = getDragAfterElement(targetTimeline, e.clientX);
-    let insertBeforeElement = null;
-    let newStartTime;
-    
-    draggedElement.remove();
-    
-    const machineNumber = targetTimeline.id.replace('timeline-', '');
-    
-    if (jobDatabase[jobId]) {
-        jobDatabase[jobId].machine = machineNumber;
-    }
-    if (plDatabase[jobId]) {
-        plDatabase[jobId].machine = machineNumber;
-    }
-    
-    const activeJobs = targetTimeline.querySelectorAll('.job:not(.job-printed)');
-    
-    if (afterElement) {
-        insertBeforeElement = afterElement;
-        const insertIndex = Array.from(targetTimeline.children).indexOf(afterElement);
-        
-        let prevJob = null;
-        for (let i = insertIndex - 1; i >= 0; i--) {
-            const child = targetTimeline.children[i];
-            if (child.classList.contains('job') && !child.classList.contains('job-dragging')) {
-                prevJob = child;
-                break;
-            }
-        }
-        
-        if (prevJob && prevJob.classList.contains('job') && !prevJob.classList.contains('job-printed')) {
-            const prevJobId = prevJob.getAttribute('data-job-id');
-            newStartTime = jobSchedule[prevJobId]?.endTime || new Date().getTime();
-        } else {
-            const printedJobs = targetTimeline.querySelectorAll('.job.job-printed');
-            if (printedJobs.length > 0) {
-                const lastPrinted = printedJobs[printedJobs.length - 1];
-                const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-                newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
-            } else {
-                newStartTime = new Date().getTime();
-            }
-        }
-        
-        targetTimeline.insertBefore(draggedElement, afterElement);
-    } else {
-        const firstPrinted = targetTimeline.querySelector('.job.job-printed');
-        if (firstPrinted) {
-            targetTimeline.insertBefore(draggedElement, firstPrinted);
-        } else {
-            targetTimeline.appendChild(draggedElement);
-        }
-        
-        const lastActive = targetTimeline.querySelectorAll('.job:not(.job-printed)');
-        if (lastActive.length > 0) {
-            const lastJob = lastActive[lastActive.length - 1];
-            const lastJobId = lastJob.getAttribute('data-job-id');
-            newStartTime = jobSchedule[lastJobId]?.endTime || new Date().getTime();
-        } else {
-            const printedJobs = targetTimeline.querySelectorAll('.job.job-printed');
-            if (printedJobs.length > 0) {
-                const lastPrinted = printedJobs[printedJobs.length - 1];
-                const lastPrintedId = lastPrinted.getAttribute('data-job-id');
-                newStartTime = jobSchedule[lastPrintedId]?.endTime || new Date().getTime();
-            } else {
-                newStartTime = new Date().getTime();
-            }
-        }
-    }
-    
-    if (jobSchedule[jobId]) {
-        const duration = (jobSchedule[jobId].endTime - jobSchedule[jobId].startTime);
-        jobSchedule[jobId] = {
-            startTime: newStartTime,
-            endTime: newStartTime + duration,
-            timelineId: targetTimeline.id,
-            isPrinted: false
-        };
-    }
-    
-    rescheduleTimelineJobs(oldTimeline.id);
-    rescheduleTimelineJobs(targetTimeline.id);
-    
-    scaleTimeline(oldTimeline.id);
-    scaleTimeline(targetTimeline.id);
-    updateMachineStatus(oldTimeline.closest('.machine'));
-    updateMachineStatus(targetTimeline.closest('.machine'));
-    updateAllJobTimes();
-    updateAllJobColors();
-    updateStatistics();
-    applySmartZoom();
-    setTimeout(() => updateAllTimelineScrollPositions(), 300);
-}
-
-// ============================================================
 // EXPOSE TO WINDOW
 // ============================================================
 window.initializeApp = initializeApp;
 window.setupEventListeners = setupEventListeners;
-window.setupDragAndDrop = setupDragAndDrop;
-window.handleFeedToTimeline = handleFeedToTimeline;
-window.handleJobReorder = handleJobReorder;
-window.checkJobOnTimeline = checkJobOnTimeline;
-window.getDragAfterElement = getDragAfterElement;
 window.initializeTimelineRulers = initializeTimelineRulers;
 window.setupAutoSaveTriggers = setupAutoSaveTriggers;
 window.rebuildTimelinesFromSchedules = rebuildTimelinesFromSchedules;
