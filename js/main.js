@@ -25,6 +25,7 @@ async function initializeApp() {
         // App will be initialized after login via auth listener
         return;
     }
+    
     // ============================================================
     // STEP 1: Initialize Supabase and load data
     // ============================================================
@@ -53,15 +54,6 @@ async function initializeApp() {
         }
     });
     
-    // Wrap critical functions with permission checks
-    function checkPermission(permission, actionName) {
-        if (!hasPermission(permission)) {
-            showNotification(`❌ You don't have permission to ${actionName}`, 'error');
-            return false;
-        }
-        return true;
-    }
-
     // ============================================================
     // STEP 1.5: Rebuild timelines from loaded schedules
     // ============================================================
@@ -614,42 +606,19 @@ function rebuildTimelinesFromSchedules() {
 function setupAutoSaveTriggers() {
     console.log('🔄 Setting up auto-save triggers...');
     
-    // Save when jobs are added/removed from timeline
-    const originalAddJob = window.addJobToTimelineWithSchedule;
-    if (originalAddJob) {
-        window.addJobToTimelineWithSchedule = function(...args) {
-            const result = originalAddJob.apply(this, args);
-            scheduleAutoSave();
-            return result;
-        };
-    }
-    
-    // Save when job is returned to feed
-    const originalReturnJob = window.returnJobToFeed;
-    if (originalReturnJob) {
-        window.returnJobToFeed = function(...args) {
-            const result = originalReturnJob.apply(this, args);
-            scheduleAutoSave();
-            return result;
-        };
-    }
-    
-    // Save when job details are saved from modal
-    const originalSaveJob = window.saveJobDetailsFromModal;
-    if (originalSaveJob) {
-        window.saveJobDetailsFromModal = function(...args) {
-            const result = originalSaveJob.apply(this, args);
-            scheduleAutoSave();
-            return result;
-        };
-    }
+    // The timeline.js functions already have triggerImmediateSave() calls
+    // We just need to ensure scheduleAutoSave is called for other operations
     
     // Save when job setup/quantity/speed is updated
     const originalUpdateSetup = window.updateJobSetup;
     if (originalUpdateSetup) {
         window.updateJobSetup = function(...args) {
             const result = originalUpdateSetup.apply(this, args);
-            scheduleAutoSave();
+            if (result) {
+                if (typeof scheduleAutoSave === 'function') {
+                    scheduleAutoSave();
+                }
+            }
             return result;
         };
     }
@@ -658,7 +627,11 @@ function setupAutoSaveTriggers() {
     if (originalUpdateQuantity) {
         window.updateJobQuantity = function(...args) {
             const result = originalUpdateQuantity.apply(this, args);
-            scheduleAutoSave();
+            if (result) {
+                if (typeof scheduleAutoSave === 'function') {
+                    scheduleAutoSave();
+                }
+            }
             return result;
         };
     }
@@ -667,7 +640,11 @@ function setupAutoSaveTriggers() {
     if (originalUpdateSpeed) {
         window.updateJobSpeed = function(...args) {
             const result = originalUpdateSpeed.apply(this, args);
-            scheduleAutoSave();
+            if (result) {
+                if (typeof scheduleAutoSave === 'function') {
+                    scheduleAutoSave();
+                }
+            }
             return result;
         };
     }
@@ -677,7 +654,25 @@ function setupAutoSaveTriggers() {
     if (originalUpdatePLStatus) {
         window.updateJobPLStatus = function(...args) {
             const result = originalUpdatePLStatus.apply(this, args);
-            scheduleAutoSave();
+            if (result) {
+                if (typeof scheduleAutoSave === 'function') {
+                    scheduleAutoSave();
+                }
+            }
+            return result;
+        };
+    }
+    
+    // Save when job details are saved from modal
+    const originalSaveJob = window.saveJobDetailsFromModal;
+    if (originalSaveJob) {
+        window.saveJobDetailsFromModal = function(...args) {
+            const result = originalSaveJob.apply(this, args);
+            if (result !== false) {
+                if (typeof scheduleAutoSave === 'function') {
+                    scheduleAutoSave();
+                }
+            }
             return result;
         };
     }
@@ -728,8 +723,12 @@ function setupEventListeners() {
     document.addEventListener('keydown', handleKeydown);
     document.addEventListener('click', handleClickOutside);
     
-    // Setup drag and drop (using timeline.js version)
-    setupDragAndDrop();
+    // ⭐ Use the setupDragAndDrop from timeline.js - DO NOT redefine it here
+    if (typeof setupDragAndDrop === 'function') {
+        setupDragAndDrop();
+    } else {
+        console.warn('⚠️ setupDragAndDrop not found in timeline.js');
+    }
     
     // Setup Excel uploads
     console.log('Calling setupExcelUploads...');
@@ -787,10 +786,13 @@ function setupEventListeners() {
 }
 
 function handleKeydown(e) {
+    // ⭐ Use the returnJobToFeed from timeline.js
     if (e.key === 'Delete' && selectedJob && selectedJob.classList.contains('job') && !selectedJob.classList.contains('job-printed')) {
-        returnJobToFeed(selectedJob);
-        selectedJob = null;
-        updateAllJobColors();
+        if (typeof returnJobToFeed === 'function') {
+            returnJobToFeed(selectedJob);
+            selectedJob = null;
+            updateAllJobColors();
+        }
     }
 }
 
