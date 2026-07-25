@@ -194,11 +194,7 @@ function updateStatusIndicators(allUpdated = null) {
     
     let summaryHTML = '';
     if (expiredCount > 0) {
-        summaryHTML = `
-            <div class="upload-status-item status-expired-summary" style="background: #f8d7da; border-color: #dc3545; padding: 8px 12px; border-radius: 6px; margin-top: 4px;">
-                <span>🔴 <strong>${expiredCount}</strong> upload${expiredCount > 1 ? 's' : ''} expired: <strong>${expiredNames.join(', ')}</strong> (must re-upload within 24h)</span>
-            </div>
-        `;
+
     } else if (pendingCount > 0) {
         summaryHTML = `
             <div class="upload-status-item status-pending-summary" style="background: #fff3cd; border-color: #ffc107; padding: 8px 12px; border-radius: 6px; margin-top: 4px;">
@@ -821,36 +817,56 @@ async function handlePLUpload(file) {
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
-                // ============================================
-                // READ ALL FIELDS FROM EXCEL
-                // ============================================
-                const jobName = String(row[1] || '').trim() || 'Unnamed Job';
-                const newPlat = String(row[2] || '').trim() || '';
-                const color = String(row[3] || '').trim() || ''; // Column D (index 3)
-                const materialAvailability = String(row[4] || '').trim() || '';
-                const planningStatus = String(row[5] || '').trim() || 'Unplanned';
-                const delivered = String(row[6] || '').trim() || '';
-                const delivered2 = String(row[7] || '').trim() || '';
-                const machine = String(row[8] || '').trim() || '';
-                
-                // ✅ PRIORITY - Cell J (index 9) - smaller number = higher priority
-                const priority = parseInt(row[9]) || 999;
-                
-                const cuttingMethod = String(row[10] || '').trim() || '';
-                const quantity = parseFloat(row[11]) || 0;
-                const film = String(row[12] || '').trim() || '';
-                const thickness = String(row[13] || '').trim() || '';
-                const materialType = String(row[14] || '').trim() || '';
-                const machineSpeed = parseFloat(row[15]) || 200;
-                const meters = parseFloat(row[16]) || 0;
-                const setupTime = parseFloat(row[17]) || 120;
-                const requiredTime = parseFloat(row[18]) || 0;
-                const plannedSpeed = parseFloat(row[19]) || 200;
-                const actualSpeed = parseFloat(row[20]) || 200;
-                const plannedSetup = parseFloat(row[21]) || 120;
-                const actualSetup = parseFloat(row[22]) || 0;
-                const downtime = parseFloat(row[23]) || 0;
-                const printingDuration = parseFloat(row[24]) || 0;
+// ============================================
+// READ ALL FIELDS FROM EXCEL
+// ============================================
+const jobName = String(row[1] || '').trim() || 'Unnamed Job';
+const newPlat = String(row[2] || '').trim() || '';
+const color = String(row[3] || '').trim() || ''; // Column D (index 3)
+const materialAvailability = String(row[4] || '').trim() || '';
+
+// ⭐ PLANNING STATUS - Normalize to valid values
+let planningStatus = String(row[5] || '').trim() || 'Unplanned';
+// Normalize planning status to valid values
+const validPlanningStatuses = ['Planned', 'Unplanned', 'Complete', 'PL-Deleted', 'PL-Hold'];
+const statusMap = {
+    'planned': 'Planned',
+    'unplanned': 'Unplanned',
+    'complete': 'Complete',
+    'complete?': 'Complete',
+    'printed': 'Complete',
+    'deleted': 'PL-Deleted',
+    'hold': 'PL-Hold',
+    'on hold': 'PL-Hold'
+};
+const normalizedStatus = statusMap[planningStatus.toLowerCase()] || planningStatus;
+planningStatus = validPlanningStatuses.includes(normalizedStatus) ? normalizedStatus : 'Unplanned';
+
+const delivered = String(row[6] || '').trim() || '';
+const delivered2 = String(row[7] || '').trim() || '';
+const machine = String(row[8] || '').trim() || '';
+
+// ✅ PRIORITY - Cell I (index 9) - smaller number = higher priority
+let priority = parseInt(row[9]);
+if (isNaN(priority) || priority < 0) {
+    priority = 999;
+}
+
+const cuttingMethod = String(row[10] || '').trim() || '';
+const quantity = parseFloat(row[11]) || 0;
+const film = String(row[12] || '').trim() || '';
+const thickness = String(row[13] || '').trim() || '';
+const materialType = String(row[14] || '').trim() || '';
+const machineSpeed = parseFloat(row[15]) || 200;
+const meters = parseFloat(row[16]) || 0;
+const setupTime = parseFloat(row[17]) || 120;
+const requiredTime = parseFloat(row[18]) || 0;
+const plannedSpeed = parseFloat(row[19]) || 200;
+const actualSpeed = parseFloat(row[20]) || 200;
+const plannedSetup = parseFloat(row[21]) || 120;
+const actualSetup = parseFloat(row[22]) || 0;
+const downtime = parseFloat(row[23]) || 0;
+const printingDuration = parseFloat(row[24]) || 0;
                 
                 // Check AW data
                 let awStatus = 'Unknown';
@@ -874,23 +890,23 @@ async function handlePLUpload(file) {
                     jobsWithAW++;
                 }
                 
-                const isPlanned = planningStatus === 'Planned';
-                const isComplete = planningStatus === 'Complete' || planningStatus === 'Printed';
-                const isUnplanned = planningStatus === 'Unplanned';
-                const isDeleted = planningStatus === 'Deleted' || planningStatus === 'PL-Deleted';
-                const isHold = planningStatus === 'Hold' || planningStatus === 'PL-Hold';
-                
-                const jobId = `job-${jobNumber}`;
-                
-                let effectiveStatus = awStatus;
-                if (isComplete) effectiveStatus = 'Complete';
-                else if (isPlanned) effectiveStatus = 'Planned';
-                else if (isUnplanned) effectiveStatus = 'Unplanned';
-                else if (isDeleted) effectiveStatus = 'PL-Deleted';
-                else if (isHold) effectiveStatus = 'PL-Hold';
-                else if (awStatus === 'Unknown') {
-                    effectiveStatus = planningStatus || 'Unplanned';
-                }
+// After parsing the planningStatus, set the status flags
+const isPlanned = planningStatus === 'Planned';
+const isComplete = planningStatus === 'Complete';
+const isUnplanned = planningStatus === 'Unplanned';
+const isDeleted = planningStatus === 'PL-Deleted';
+const isHold = planningStatus === 'PL-Hold';
+
+// Update the effective status based on planning status
+let effectiveStatus = awStatus;
+if (isComplete) effectiveStatus = 'Complete';
+else if (isPlanned) effectiveStatus = 'Planned';
+else if (isUnplanned) effectiveStatus = 'Unplanned';
+else if (isDeleted) effectiveStatus = 'PL-Deleted';
+else if (isHold) effectiveStatus = 'PL-Hold';
+else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
+    effectiveStatus = planningStatus || 'Unplanned';
+}
                 
                 // Store in memory
                 jobDatabase[jobId] = {
