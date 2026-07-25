@@ -170,6 +170,7 @@ async function initializeApp() {
 // ============================================================
 // EMERGENCY FLUSH - Clear all data from database
 // ============================================================
+
 function setupEmergencyFlush() {
     const flushBtn = document.getElementById('emergency-flush-btn');
     if (!flushBtn) return;
@@ -606,9 +607,6 @@ function rebuildTimelinesFromSchedules() {
 function setupAutoSaveTriggers() {
     console.log('🔄 Setting up auto-save triggers...');
     
-    // The timeline.js functions already have triggerImmediateSave() calls
-    // We just need to ensure scheduleAutoSave is called for other operations
-    
     // Save when job setup/quantity/speed is updated
     const originalUpdateSetup = window.updateJobSetup;
     if (originalUpdateSetup) {
@@ -706,7 +704,7 @@ function initializeTimelineRulers() {
 }
 
 // ============================================================
-// EVENT LISTENERS
+// EVENT LISTENERS - ⭐ CRITICAL FIX: No drag functions here!
 // ============================================================
 function setupEventListeners() {
     console.log('Setting up event listeners...');
@@ -723,11 +721,13 @@ function setupEventListeners() {
     document.addEventListener('keydown', handleKeydown);
     document.addEventListener('click', handleClickOutside);
     
-    // ⭐ Use the setupDragAndDrop from timeline.js - DO NOT redefine it here
+    // ⭐⭐⭐ CRITICAL FIX: ONLY call setupDragAndDrop from timeline.js
+    // DO NOT redefine it here - the timeline.js version has the visual repaint fixes!
     if (typeof setupDragAndDrop === 'function') {
+        console.log('✅ Using setupDragAndDrop from timeline.js (with visual repaint fixes)');
         setupDragAndDrop();
     } else {
-        console.warn('⚠️ setupDragAndDrop not found in timeline.js');
+        console.warn('⚠️ setupDragAndDrop not found in timeline.js - check script loading order');
     }
     
     // Setup Excel uploads
@@ -813,13 +813,15 @@ function handleClickOutside(e) {
 }
 
 // ============================================================
-// EXPOSE TO WINDOW
+// EXPOSE TO WINDOW - DON'T export drag functions from main.js!
 // ============================================================
 window.initializeApp = initializeApp;
 window.setupEventListeners = setupEventListeners;
 window.initializeTimelineRulers = initializeTimelineRulers;
 window.setupAutoSaveTriggers = setupAutoSaveTriggers;
 window.rebuildTimelinesFromSchedules = rebuildTimelinesFromSchedules;
+window.initEmergencyFlush = initEmergencyFlush;
+window.performFlush = performFlush;
 
 console.log('%c=== Planning Monitor Loaded ===', 'font-size:16px;font-weight:bold;color:#3498db;');
 console.log('Available functions:');
