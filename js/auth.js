@@ -513,7 +513,7 @@ function updateRoleIndicator() {
                 gap: 10px;
                 margin-left: auto;
                 padding: 4px 12px;
-                background: rgba(255,255,255,0.1);
+                background: rgba(255, 255, 255, 0.56);
                 border-radius: 20px;
                 backdrop-filter: blur(4px);
             }
@@ -530,7 +530,7 @@ function updateRoleIndicator() {
                 text-transform: uppercase;
                 padding: 2px 8px;
                 border-radius: 12px;
-                background: rgba(0,0,0,0.08);
+                background: rgb(255, 255, 255);
             }
             .role-admin .role-name { color: #dc3545; }
             .role-aw_group .role-name { color: #17a2b8; }
@@ -1412,15 +1412,13 @@ window.updatePasswordStrength = updatePasswordStrength;
 
 console.log('✅ Password change module loaded');
 
+
 // ============================================================
-// INITIALIZE AUTH ON LOAD
+// INITIALIZE AUTH - Called by main.js
 // ============================================================
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize auth after a short delay to allow other scripts to load
-    setTimeout(async () => {
-        await initAuth();
-    }, 500);
-});
+// Remove DOMContentLoaded - let main.js handle initialization
+// The auth will be initialized by main.js's initializeApp()
+console.log('✅ auth.js loaded - Waiting for main.js to initialize');
 
 // Expose functions to window
 window.initAuth = initAuth;
