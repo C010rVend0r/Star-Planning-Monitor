@@ -392,19 +392,26 @@ function createJobElement(jobId, jobData) {
             quantityInput.addEventListener('click', e => e.stopPropagation());
         }
         
-        const speedInput = job.querySelector('.job-speed-input');
-        if (speedInput) {
-            speedInput.addEventListener('change', function(e) {
-                e.stopPropagation();
-                const jobId = this.getAttribute('data-job-id');
-                const newSpeed = this.value;
-                if (updateJobSpeed(jobId, newSpeed)) {
-                    this.classList.add('field-updated');
-                    setTimeout(() => this.classList.remove('field-updated'), 2000);
-                }
-            });
-            speedInput.addEventListener('click', e => e.stopPropagation());
+// In createJobElement function, find the speed input section and update it:
+const speedInput = job.querySelector('.job-speed-input');
+if (speedInput) {
+    speedInput.addEventListener('change', function(e) {
+        e.stopPropagation();
+        const jobId = this.getAttribute('data-job-id');
+        const newSpeed = this.value;
+        // ⭐ FIX: Use the enhanced updateJobSpeed function
+        if (updateJobSpeed(jobId, newSpeed)) {
+            this.classList.add('field-updated');
+            setTimeout(() => this.classList.remove('field-updated'), 2000);
+        } else {
+            // Revert to previous value if update failed
+            const currentSpeed = jobSpeeds[jobId] || jobDatabase[jobId]?.machineSpeed || machineConfig.speed;
+            this.value = currentSpeed;
+            showNotification('❌ Failed to update speed', 'error');
         }
+    });
+    speedInput.addEventListener('click', e => e.stopPropagation());
+}
     }
     
     // Click event - show on timeline if Planned, otherwise select
@@ -742,8 +749,28 @@ function createFeedJobElement(jobId, jobData) {
 // UPDATE FEED ITEM STATUS
 // ============================================================
 function updateFeedItemStatus(jobId) {
+    // ⭐ CRITICAL FIX: Remove all duplicates first
+    const existingFeedItems = document.querySelectorAll(`.feed-job[data-job-id="${jobId}"]`);
+    if (existingFeedItems.length > 1) {
+        // Keep only the first one, remove the rest
+        for (let i = 1; i < existingFeedItems.length; i++) {
+            existingFeedItems[i].remove();
+        }
+    }
+    
     const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
-    if (!feedItem) return;
+    if (!feedItem) {
+        // If no feed item exists, create one
+        const jobData = jobDatabase[jobId];
+        if (jobData) {
+            const newFeedItem = createFeedJobElement(jobId, jobData);
+            const productionFeedList = document.getElementById('production-feed-list');
+            if (productionFeedList) {
+                productionFeedList.appendChild(newFeedItem);
+            }
+        }
+        return;
+    }
     
     const jobData = jobDatabase[jobId];
     if (!jobData) return;
@@ -775,9 +802,10 @@ function updateFeedItemStatus(jobId) {
         feedItem.classList.add('feed-job-planned');
     }
     
+    // Update the header badges
     const header = feedItem.querySelector('.feed-item-header');
     if (header) {
-        header.querySelectorAll('.feed-planned-badge, .feed-complete-badge').forEach(el => el.remove());
+        header.querySelectorAll('.feed-planned-badge, .feed-complete-badge, .feed-unplanned-badge').forEach(el => el.remove());
         
         if (isComplete) {
             const completeBadge = document.createElement('span');
@@ -791,6 +819,16 @@ function updateFeedItemStatus(jobId) {
             plannedBadge.style.cssText = 'font-size:9px; background:#28a74520; color:#28a745; border:1px solid #28a74540; padding:1px 6px; border-radius:3px; margin-left:4px; animation: plannedPulse 3s ease-in-out infinite;';
             plannedBadge.textContent = '📋 Planned';
             header.appendChild(plannedBadge);
+        } else if (plStatus === 'Unplanned' || plStatus === 'PL-Deleted' || plStatus === 'PL-Hold') {
+            const unplannedBadge = document.createElement('span');
+            unplannedBadge.className = 'feed-unplanned-badge';
+            const badgeText = plStatus === 'PL-Deleted' ? '🗑️ Deleted' : 
+                             plStatus === 'PL-Hold' ? '⏸️ Hold' : '📋 Unplanned';
+            const badgeColor = plStatus === 'PL-Deleted' ? '#dc3545' : 
+                              plStatus === 'PL-Hold' ? '#ffc107' : '#6c757d';
+            unplannedBadge.style.cssText = `font-size:9px; background:${badgeColor}20; color:${badgeColor}; border:1px solid ${badgeColor}40; padding:1px 6px; border-radius:3px; margin-left:4px;`;
+            unplannedBadge.textContent = badgeText;
+            header.appendChild(unplannedBadge);
         }
     }
 }
@@ -802,6 +840,7 @@ function populateProductionFeed() {
     const productionFeedList = document.getElementById('production-feed-list');
     if (!productionFeedList) return;
     
+    // ⭐ CRITICAL FIX: Clear all existing feed items first to prevent duplicates
     productionFeedList.innerHTML = '';
     
     const sortedJobIds = Object.keys(jobDatabase).sort((a, b) => {
@@ -1344,6 +1383,9 @@ function updateFilterCounts() {
 // ============================================================
 // JOB UPDATE FUNCTIONS
 // ============================================================
+// ============================================================
+// JOB UPDATE FUNCTIONS - WITH FORCE REPAINT
+// ============================================================
 function updateJobSetup(jobId, newSetup) {
     const setup = parseFloat(newSetup);
     if (isNaN(setup) || setup < 0) return false;
@@ -1362,13 +1404,38 @@ function updateJobSetup(jobId, newSetup) {
         }
         const timeline = jobElement ? jobElement.parentElement : null;
         if (timeline && !jobElement.classList.contains('job-printed')) {
+            // ⭐ Clear cache first
+            delete timelineStateCache[timeline.id];
+            // Remove ruler
+            const container = timeline.closest('.timeline-container');
+            if (container) {
+                container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+            }
+            // Reschedule
             rescheduleTimelineJobs(timeline.id);
-            debouncedScaleTimeline(timeline.id);
+            // Force scale immediately
+            scaleTimeline(timeline.id);
             updateAllJobTimes();
             updateAllJobColors();
             updateMachineStatus(timeline.closest('.machine'));
             applySmartZoom();
-            setTimeout(() => updateAllTimelineScrollPositions(), 300);
+            // ⭐ Force repaint
+            setTimeout(() => {
+                if (typeof forceTimelineRepaint === 'function') {
+                    forceTimelineRepaint(timeline.id);
+                } else if (typeof forceCompleteRepaint === 'function') {
+                    forceCompleteRepaint(timeline.id);
+                } else {
+                    // Fallback repaint
+                    const container = timeline.closest('.timeline-container');
+                    if (container) {
+                        container.style.display = 'none';
+                        void container.offsetHeight;
+                        container.style.display = '';
+                    }
+                }
+                updateAllTimelineScrollPositions();
+            }, 50);
         }
         return true;
     }
@@ -1390,13 +1457,33 @@ function updateJobQuantity(jobId, newQuantity) {
         }
         const timeline = jobElement ? jobElement.parentElement : null;
         if (timeline && !jobElement.classList.contains('job-printed')) {
+            // ⭐ Clear cache first
+            delete timelineStateCache[timeline.id];
+            const container = timeline.closest('.timeline-container');
+            if (container) {
+                container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+            }
             rescheduleTimelineJobs(timeline.id);
-            debouncedScaleTimeline(timeline.id);
+            scaleTimeline(timeline.id);
             updateAllJobTimes();
             updateAllJobColors();
             updateMachineStatus(timeline.closest('.machine'));
             applySmartZoom();
-            setTimeout(() => updateAllTimelineScrollPositions(), 300);
+            setTimeout(() => {
+                if (typeof forceTimelineRepaint === 'function') {
+                    forceTimelineRepaint(timeline.id);
+                } else if (typeof forceCompleteRepaint === 'function') {
+                    forceCompleteRepaint(timeline.id);
+                } else {
+                    const container = timeline.closest('.timeline-container');
+                    if (container) {
+                        container.style.display = 'none';
+                        void container.offsetHeight;
+                        container.style.display = '';
+                    }
+                }
+                updateAllTimelineScrollPositions();
+            }, 50);
         }
         return true;
     }
@@ -1405,17 +1492,79 @@ function updateJobQuantity(jobId, newQuantity) {
 
 function updateJobSpeed(jobId, newSpeed) {
     const speed = parseFloat(newSpeed);
-    if (isNaN(speed) || speed <= 0) return false;
+    if (isNaN(speed) || speed <= 0) {
+        showNotification('⚠️ Please enter a valid speed (must be > 0)', 'warning');
+        return false;
+    }
     
+    if (!jobDatabase[jobId]) {
+        showNotification('❌ Job not found', 'error');
+        return false;
+    }
+    
+    // Update in memory
     jobSpeeds[jobId] = speed;
     if (plDatabase[jobId]) {
         plDatabase[jobId].machineSpeed = speed;
         plDatabase[jobId].plannedSpeed = speed;
         plDatabase[jobId].actualSpeed = speed;
     }
+    jobDatabase[jobId].machineSpeed = speed;
+    
+    // ⭐ CRITICAL: Save speed to Supabase with retry
+    if (typeof supabaseSaveSpeed === 'function') {
+        // Try to save with retry
+        let saved = false;
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        const attemptSave = async () => {
+            while (attempts < maxAttempts && !saved) {
+                attempts++;
+                try {
+                    const success = await supabaseSaveSpeed(jobId, speed);
+                    if (success) {
+                        saved = true;
+                        console.log(`✅ Speed ${speed} saved to Supabase for ${jobId} (attempt ${attempts})`);
+                    } else {
+                        console.warn(`⚠️ Save attempt ${attempts} failed for ${jobId}`);
+                        if (attempts < maxAttempts) {
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        }
+                    }
+                } catch (error) {
+                    console.error(`❌ Error saving speed (attempt ${attempts}):`, error);
+                    if (attempts >= maxAttempts) {
+                        showNotification('⚠️ Speed saved locally but failed to save to database', 'warning');
+                    }
+                }
+            }
+            return saved;
+        };
+        
+        // Execute save asynchronously (don't await - let it run in background)
+        attemptSave().then(success => {
+            if (success) {
+                console.log(`✅ Speed ${speed} successfully saved to Supabase for ${jobId}`);
+            } else {
+                console.warn(`⚠️ Failed to save speed ${speed} for ${jobId} after ${maxAttempts} attempts`);
+                // Schedule a retry later
+                setTimeout(() => {
+                    supabaseSaveSpeed(jobId, speed).then(s => {
+                        if (s) console.log(`✅ Speed ${speed} saved on retry for ${jobId}`);
+                    });
+                }, 5000);
+            }
+        });
+    }
+    
+    // Update UI
     const jobElement = document.querySelector(`.job[data-job-id="${jobId}"]`);
     if (jobElement) {
+        // Update job card display
         updateJobCardDisplay(jobId);
+        
+        // Update speed indicator
         let speedIndicator = jobElement.querySelector('.job-speed-indicator');
         if (!speedIndicator) {
             speedIndicator = document.createElement('span');
@@ -1425,17 +1574,51 @@ function updateJobSpeed(jobId, newSpeed) {
             else jobElement.appendChild(speedIndicator);
         }
         speedIndicator.textContent = `⚡ ${speed} m/min`;
+        
+        // Update the speed input in the job card
+        const speedInput = jobElement.querySelector('.job-speed-input');
+        if (speedInput) speedInput.value = speed;
+        
+        // Also update modal if it's open
+        const modalSpeedInput = document.getElementById('modal-speed');
+        if (modalSpeedInput && document.getElementById('job-details-modal')?.classList.contains('active')) {
+            modalSpeedInput.value = speed;
+        }
+        
+        // Update timeline
         const timeline = jobElement.parentElement;
         if (timeline && !jobElement.classList.contains('job-printed')) {
+            delete timelineStateCache[timeline.id];
+            const container = timeline.closest('.timeline-container');
+            if (container) {
+                container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+            }
             rescheduleTimelineJobs(timeline.id);
-            debouncedScaleTimeline(timeline.id);
+            scaleTimeline(timeline.id);
             updateAllJobTimes();
             updateAllJobColors();
             updateMachineStatus(timeline.closest('.machine'));
             applySmartZoom();
-            setTimeout(() => updateAllTimelineScrollPositions(), 300);
+            setTimeout(() => {
+                if (typeof forceCompleteRepaint === 'function') {
+                    forceCompleteRepaint(timeline.id);
+                }
+                updateAllTimelineScrollPositions();
+            }, 50);
         }
     }
+    
+    // Also update feed item if it exists
+    const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
+    if (feedItem) {
+        const durationEl = feedItem.querySelector('.feed-duration');
+        if (durationEl) {
+            const duration = calculateJobDuration(jobDatabase[jobId], jobId);
+            durationEl.textContent = `Duration: ${Math.round(duration)}min`;
+        }
+    }
+    
+    showNotification(`✅ Speed updated to ${speed} m/min for ${jobDatabase[jobId].name || jobId}`, 'success');
     return true;
 }
 
