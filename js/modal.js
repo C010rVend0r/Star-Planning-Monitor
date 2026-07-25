@@ -689,38 +689,98 @@ async function saveJobDetailsFromModal() {
         }
     }
     
-    // ============================================================
-    // ⭐ CRITICAL FIX: Handle Unplanned - Remove from timeline IMMEDIATELY
-    // ============================================================
-    if (isNowUnplanned && isOnTimeline && timelineJob && !timelineJob.classList.contains('job-printed')) {
-        console.log(`📊 Removing job ${jobId} from timeline (status changed to Unplanned)`);
-        
-        // Remove the job from the timeline
-        const timelineId = timelineRef ? timelineRef.id : timelineJob.parentElement.id;
-        
-        // Use returnJobToFeed to properly remove it
-        returnJobToFeed(timelineJob);
-        
-        // Update the feed item to show Unplanned
-        const feedItem = document.querySelector(`.feed-job[data-job-id="${jobId}"]`);
-        if (feedItem) {
-            const newFeedItem = createFeedJobElement(jobId, jobData);
-            feedItem.parentNode.replaceChild(newFeedItem, feedItem);
+// ============================================================
+// ⭐ CRITICAL FIX: Handle Unplanned - Remove from timeline IMMEDIATELY
+// ============================================================
+// ============================================================
+// ⭐ CRITICAL FIX: Handle Unplanned - Remove from timeline IMMEDIATELY
+// ============================================================
+if (isNowUnplanned && isOnTimeline && timelineJob && !timelineJob.classList.contains('job-printed')) {
+    console.log(`📊 Removing job ${jobId} from timeline (status changed to Unplanned)`);
+    
+    // ⭐ CRITICAL FIX: Save the Unplanned status to database FIRST
+    try {
+        // Update job data in memory
+        jobData.planningStatus = 'Unplanned';
+        jobData.isComplete = false;
+        jobData.isPlanned = false;
+        jobData.isUnplanned = true;
+        if (plDatabase[jobId]) {
+            plDatabase[jobId].planningStatus = 'Unplanned';
+            plDatabase[jobId].isComplete = false;
+            plDatabase[jobId].isPlanned = false;
+            plDatabase[jobId].isUnplanned = true;
         }
         
-        // Update statistics and filter
-        updateStatistics();
-        applyFilter();
-        updateAllJobColors();
-        applySmartZoom();
+        // Save to Supabase immediately
+        if (typeof supabaseSaveJob === 'function') {
+            const jobDataToSave = convertCamelToSnake(jobData);
+            jobDataToSave.job_id = jobId;
+            await supabaseSaveJob(jobId, jobDataToSave);
+            console.log(`✅ Job ${jobId} status saved to Unplanned in Supabase`);
+        }
         
-        // Show notification
-        showNotification(`↩️ "${name}" removed from timeline (status: Unplanned)`, 'info');
+        if (typeof supabaseSavePLData === 'function' && plDatabase[jobId]) {
+            const plDataToSave = convertCamelToSnake(plDatabase[jobId]);
+            await supabaseSavePLData(jobId, plDataToSave);
+            console.log(`✅ PL data for ${jobId} saved to Unplanned in Supabase`);
+        }
         
-        // Close modal and return early
-        closeJobDetailsModal();
-        return;
+        // Delete schedule from Supabase
+        if (typeof supabaseDeleteSchedule === 'function') {
+            await supabaseDeleteSchedule(jobId);
+            console.log(`✅ Schedule deleted for ${jobId} in Supabase`);
+        }
+    } catch (saveError) {
+        console.error('❌ Error saving Unplanned status to Supabase:', saveError);
+        // Continue with UI updates even if save fails
     }
+    
+    // Get the timeline reference
+    const timelineId = timelineRef ? timelineRef.id : timelineJob.parentElement.id;
+    
+    // Remove from memory schedule
+    delete jobSchedule[jobId];
+    
+    // Remove the job element from DOM
+    timelineJob.remove();
+    
+    // ⭐ CRITICAL FIX: Update feed item to reflect Unplanned status
+    // Remove any existing feed item for this job first to prevent duplicates
+    const existingFeedItems = document.querySelectorAll(`.feed-job[data-job-id="${jobId}"]`);
+    existingFeedItems.forEach(item => item.remove());
+    
+    // Create a fresh feed item with the updated data
+    const newFeedItem = createFeedJobElement(jobId, jobData);
+    const productionFeedList = document.getElementById('production-feed-list');
+    if (productionFeedList) {
+        productionFeedList.appendChild(newFeedItem);
+    }
+    
+    // Force repaint the timeline
+    forceCompleteRepaint(timelineId);
+    
+    // Reschedule the timeline
+    rescheduleTimelineJobs(timelineId, true);
+    debouncedScaleTimeline(timelineId);
+    updateMachineStatus(timelineRef ? timelineRef.closest('.machine') : null);
+    
+    // Update statistics and filters
+    applyFilter();
+    updateStatistics();
+    updateAllJobColors();
+    applySmartZoom();
+    setTimeout(updateAllTimelineScrollPositions, 300);
+    
+    // Trigger auto-save to ensure everything is persisted
+    if (typeof scheduleAutoSave === 'function') {
+        scheduleAutoSave();
+    }
+    
+    showNotification(`↩️ "${name}" removed from timeline (status: Unplanned)`, 'info');
+    closeJobDetailsModal();
+    return;
+}
     
     // ============================================================
     // HANDLE COMPLETED JOB (PRINTED)
