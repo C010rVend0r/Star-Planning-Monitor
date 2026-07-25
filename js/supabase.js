@@ -3,16 +3,23 @@
 // SUPABASE CONFIGURATION
 // ============================================================
 
-// actual Supabase credentials from:
-// https://supabase.com/dashboard/project/jeqbpugoicguypqapuwg/settings/api
+// Actual Supabase credentials from:
+// https://supabase.com/dashboard/project/wjnynzazfganrqoacpdp/settings/api
 
 const SUPABASE_URL = 'https://wjnynzazfganrqoacpdp.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_9Oqodws7pAh3RO4xDlgH6Q_FOgf7aWo'; // publishable key (not the secret key)
+const SUPABASE_ANON_KEY = 'sb_publishable_9Oqodws7pAh3RO4xDlgH6Q_FOgf7aWo';
+
+// ⭐ SERVICE ROLE KEY - For admin operations only
+// Get this from: Supabase Dashboard > Settings > API > Service role secret
+// IMPORTANT: Never expose this in production client-side code!
+// For development/testing only.
+const SUPABASE_SERVICE_ROLE_KEY = 'YOUR_SERVICE_ROLE_KEY_HERE';
 
 let supabaseClient = null;
+let supabaseAdminClient = null;
 
 // ============================================================
-// INITIALIZE SUPABASE
+// INITIALIZE SUPABASE (Regular client - for normal operations)
 // ============================================================
 function initSupabase() {
     if (!supabaseClient) {
@@ -20,6 +27,111 @@ function initSupabase() {
         console.log('✅ Supabase client initialized');
     }
     return supabaseClient;
+}
+
+// ============================================================
+// INITIALIZE SUPABASE ADMIN (Service role - for admin operations)
+// ============================================================
+function initSupabaseAdmin() {
+    if (SUPABASE_SERVICE_ROLE_KEY === 'YOUR_SERVICE_ROLE_KEY_HERE') {
+        console.warn('⚠️ Service role key not configured!');
+        console.warn('📝 Get it from: Supabase Dashboard > Settings > API > Service role secret');
+        return null;
+    }
+    
+    if (!supabaseAdminClient) {
+        try {
+            supabaseAdminClient = supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+            console.log('✅ Supabase admin client initialized');
+        } catch (error) {
+            console.error('❌ Failed to initialize admin client:', error);
+            return null;
+        }
+    }
+    return supabaseAdminClient;
+}
+
+// ============================================================
+// CREATE USER WITH ADMIN (Using Service Role Key)
+// ============================================================
+async function createUserWithAdmin(email, password, displayName, role, uploader = null) {
+    console.log('🔐 Creating user with admin privileges...');
+    
+    const adminClient = initSupabaseAdmin();
+    if (!adminClient) {
+        console.error('❌ Admin client not available. Service role key not configured.');
+        if (typeof showNotification === 'function') {
+            showNotification('❌ Admin client not available. Service role key not configured.', 'error');
+        }
+        return false;
+    }
+    
+    try {
+        // Create user using admin API
+        const { data: userData, error: userError } = await adminClient.auth.admin.createUser({
+            email: email,
+            password: password,
+            email_confirm: true,
+            user_metadata: {
+                full_name: displayName,
+                first_login: true
+            }
+        });
+        
+        if (userError) {
+            console.error('❌ User creation error:', userError);
+            if (typeof showNotification === 'function') {
+                showNotification(`❌ Error: ${userError.message}`, 'error');
+            }
+            return false;
+        }
+        
+        if (!userData || !userData.user) {
+            console.error('❌ Failed to create user - no user data returned');
+            if (typeof showNotification === 'function') {
+                showNotification('❌ Failed to create user - no user data returned', 'error');
+            }
+            return false;
+        }
+        
+        const userId = userData.user.id;
+        console.log(`✅ User created with ID: ${userId}`);
+        
+        // Create profile using regular client (now user exists)
+        const client = initSupabase();
+        const { error: profileError } = await client
+            .from('user_profiles')
+            .insert({
+                user_id: userId,
+                email: email,
+                display_name: displayName,
+                role: role || 'observer',
+                uploader: uploader || null,
+                is_active: true,
+                password_set: true
+            });
+        
+        if (profileError) {
+            console.error('❌ Profile creation error:', profileError);
+            if (typeof showNotification === 'function') {
+                showNotification(`⚠️ User created but profile creation failed: ${profileError.message}`, 'warning');
+            }
+            return false;
+        }
+        
+        console.log(`✅ User ${email} created with role: ${role || 'observer'}`);
+        if (typeof showNotification === 'function') {
+            showNotification(`✅ User ${email} created successfully with role: ${role || 'observer'}`, 'success');
+        }
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Error creating user:', error);
+        if (typeof showNotification === 'function') {
+            showNotification(`❌ Error: ${error.message}`, 'error');
+        }
+        return false;
+    }
 }
 
 // ============================================================
@@ -180,9 +292,6 @@ async function supabaseSavePLData(jobId, plData) {
 }
 
 // ---------- AW DATA ----------
-// supabase.js - FIXED AW Data functions
-
-// ---------- AW DATA ----------
 async function supabaseLoadAllAWData() {
     try {
         const client = initSupabase();
@@ -203,7 +312,6 @@ async function supabaseSaveAWData(jobNumber, awData) {
     try {
         const client = initSupabase();
         
-        // ⭐ Match your database schema exactly
         const dataToSave = {
             job_number: jobNumber,
             status: awData.status || awData.raw_status || 'Unknown',
@@ -211,7 +319,6 @@ async function supabaseSaveAWData(jobNumber, awData) {
             status_date: awData.status_date || awData.statusDate || new Date(1900, 0, 1).toISOString(),
             estimated_date: awData.estimated_date || awData.estimatedDate || null,
             is_from_aw: awData.is_from_aw !== undefined ? awData.is_from_aw : true
-            // ❌ NO last_updated - your schema doesn't have this column
         };
         
         const { error } = await client
@@ -238,7 +345,6 @@ async function supabaseSaveMultipleAWData(awDataMap) {
     try {
         const client = initSupabase();
         
-        // ⭐ Match your database schema exactly
         const awArray = Object.entries(awDataMap).map(([jobNumber, data]) => ({
             job_number: jobNumber,
             status: data.status || data.raw_status || 'Unknown',
@@ -246,7 +352,6 @@ async function supabaseSaveMultipleAWData(awDataMap) {
             status_date: data.status_date || data.statusDate || new Date(1900, 0, 1).toISOString(),
             estimated_date: data.estimated_date || data.estimatedDate || null,
             is_from_aw: data.is_from_aw !== undefined ? data.is_from_aw : true
-            // ❌ NO last_updated - your schema doesn't have this column
         }));
         
         const { error } = await client
@@ -299,8 +404,6 @@ async function supabaseSaveSchedule(jobId, scheduleData) {
         return false;
     }
 }
-
-// supabase.js - Verify this function
 
 async function supabaseSaveMultipleSchedules(schedules) {
     try {
@@ -365,14 +468,37 @@ async function supabaseLoadAllSpeeds() {
 async function supabaseSaveSpeed(jobId, speed) {
     try {
         const client = initSupabase();
-        const { error } = await client
-            .from('job_speeds')
-            .upsert({ job_id: jobId, speed: speed }, { onConflict: 'job_id' });
         
-        if (error) throw error;
+        // Validate inputs
+        if (!jobId) {
+            console.error('❌ No jobId provided for speed save');
+            return false;
+        }
+        if (typeof speed !== 'number' || speed <= 0) {
+            console.error(`❌ Invalid speed value: ${speed}`);
+            return false;
+        }
+        
+        // Try to save
+        const { data, error } = await client
+            .from('job_speeds')
+            .upsert({ 
+                job_id: jobId, 
+                speed: speed,
+                updated_at: new Date().toISOString()
+            }, { 
+                onConflict: 'job_id' 
+            });
+        
+        if (error) {
+            console.error(`❌ Supabase save speed error for ${jobId}:`, error);
+            return false;
+        }
+        
+        console.log(`✅ Speed ${speed} saved to Supabase for ${jobId}`);
         return true;
     } catch (error) {
-        console.error('❌ Error saving speed:', error);
+        console.error(`❌ Error saving speed for ${jobId}:`, error);
         return false;
     }
 }
@@ -447,31 +573,6 @@ async function supabaseSetConfig(configKey, configValue) {
         return false;
     }
 }
-async function supabaseSaveMultipleSchedules(schedules) {
-    try {
-        const client = initSupabase();
-        const scheduleArray = Object.entries(schedules).map(([jobId, data]) => ({
-            job_id: jobId,
-            start_time: data.start_time,
-            end_time: data.end_time,
-            timeline_id: data.timeline_id,
-            is_printed: data.is_printed || false
-        }));
-        
-        const { error } = await client
-            .from('job_schedule')
-            .upsert(scheduleArray, { onConflict: 'job_id' });
-        
-        if (error) throw error;
-        return true;
-    } catch (error) {
-        console.error('❌ Error saving schedules:', error);
-        return false;
-    }
-}
-
-// Also expose it
-window.supabaseSaveMultipleSchedules = supabaseSaveMultipleSchedules;
 
 // ============================================================
 // SYNC FUNCTIONS - Load all data from Supabase
@@ -479,12 +580,12 @@ window.supabaseSaveMultipleSchedules = supabaseSaveMultipleSchedules;
 async function supabaseSyncAllData() {
     console.log('🔄 Syncing all data from Supabase...');
     
-    // ⭐ SAVE THE CURRENT FILTER STATE BEFORE CLEARING DATA
+    // Save the current filter state before clearing data
     const savedFilterStatuses = new Set(filterStatuses);
     
     try {
         // Load all data in parallel
-        const [jobs, plData, awData, schedules, speeds, uploadStatus] = await Promise.all([
+        const [jobs, plData, awDataResult, schedules, speeds, uploadStatus] = await Promise.all([
             supabaseLoadAllJobs(),
             supabaseLoadAllPLData(),
             supabaseLoadAllAWData(),
@@ -496,7 +597,7 @@ async function supabaseSyncAllData() {
         // Clear existing in-memory data
         Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
         Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
-        Object.keys(awData).forEach(key => delete awData[key]);
+        Object.keys(window.awData).forEach(key => delete window.awData[key]);
         Object.keys(jobSchedule).forEach(key => delete jobSchedule[key]);
         Object.keys(jobSpeeds).forEach(key => delete jobSpeeds[key]);
         
@@ -536,42 +637,37 @@ async function supabaseSyncAllData() {
         }
         
         // Load AW data
-// supabase.js - FIXED AW data loading in supabaseSyncAllData
-
-// Load AW data
-if (awData) {
-    console.log(`📊 Loading ${awData.length} AW records from Supabase...`);
-    awData.forEach(aw => {
-        const jobNumber = aw.job_number;
-        // Convert from snake to camel - match your schema
-        awData[jobNumber] = {
-            status: aw.status || 'Unknown',
-            rawStatus: aw.raw_status || aw.status || 'Unknown',
-            statusDate: aw.status_date || new Date(1900, 0, 1).toISOString(),
-            estimatedDate: aw.estimated_date || null,
-            isFromAW: aw.is_from_aw !== undefined ? aw.is_from_aw : true
-            // ❌ NO lastUpdated - your schema doesn't have this
-        };
-        
-        // ⭐ Also update the job if it exists
-        const jobId = findJobIdByNumber(jobNumber);
-        if (jobId && jobDatabase[jobId]) {
-            jobDatabase[jobId].awStatus = aw.status || 'Unknown';
-            jobDatabase[jobId].rawAWStatus = aw.raw_status || aw.status || 'Unknown';
-            jobDatabase[jobId].status = aw.status || 'Unknown';
-            jobDatabase[jobId].statusDate = aw.status_date || new Date(1900, 0, 1).toISOString();
-            jobDatabase[jobId].estimatedDate = aw.estimated_date || null;
-            
-            if (plDatabase[jobId]) {
-                plDatabase[jobId].prepressStatus = aw.status || 'Unknown';
-                plDatabase[jobId].rawAWStatus = aw.raw_status || aw.status || 'Unknown';
-                plDatabase[jobId].statusDate = aw.status_date || new Date(1900, 0, 1).toISOString();
-                plDatabase[jobId].estimatedDate = aw.estimated_date || null;
-            }
+        if (awDataResult) {
+            console.log(`📊 Loading ${awDataResult.length} AW records from Supabase...`);
+            awDataResult.forEach(aw => {
+                const jobNumber = aw.job_number;
+                window.awData[jobNumber] = {
+                    status: aw.status || 'Unknown',
+                    rawStatus: aw.raw_status || aw.status || 'Unknown',
+                    statusDate: aw.status_date || new Date(1900, 0, 1).toISOString(),
+                    estimatedDate: aw.estimated_date || null,
+                    isFromAW: aw.is_from_aw !== undefined ? aw.is_from_aw : true
+                };
+                
+                // Also update the job if it exists
+                const jobId = findJobIdByNumber(jobNumber);
+                if (jobId && jobDatabase[jobId]) {
+                    jobDatabase[jobId].awStatus = aw.status || 'Unknown';
+                    jobDatabase[jobId].rawAWStatus = aw.raw_status || aw.status || 'Unknown';
+                    jobDatabase[jobId].status = aw.status || 'Unknown';
+                    jobDatabase[jobId].statusDate = aw.status_date || new Date(1900, 0, 1).toISOString();
+                    jobDatabase[jobId].estimatedDate = aw.estimated_date || null;
+                    
+                    if (plDatabase[jobId]) {
+                        plDatabase[jobId].prepressStatus = aw.status || 'Unknown';
+                        plDatabase[jobId].rawAWStatus = aw.raw_status || aw.status || 'Unknown';
+                        plDatabase[jobId].statusDate = aw.status_date || new Date(1900, 0, 1).toISOString();
+                        plDatabase[jobId].estimatedDate = aw.estimated_date || null;
+                    }
+                }
+            });
+            console.log(`✅ Loaded ${awDataResult.length} AW records from Supabase`);
         }
-    });
-    console.log(`✅ Loaded ${awData.length} AW records from Supabase`);
-}
         
         // Load schedules
         if (schedules) {
@@ -597,13 +693,11 @@ if (awData) {
                 
                 if (completeJobIds.has(jobId)) {
                     skippedCount++;
-                    console.log(`⏭️ Skipping completed job ${jobId} from schedule`);
                     return;
                 }
                 
                 if (!activeJobIds.has(jobId) && !schedule.is_printed) {
                     skippedCount++;
-                    console.log(`⏭️ Skipping non-active job ${jobId} from schedule`);
                     return;
                 }
                 
@@ -664,52 +758,29 @@ if (awData) {
         if (uploadStatus) {
             uploadStatus.forEach(status => {
                 if (window.uploadStatus && window.uploadStatus[status.uploader]) {
-                    window.uploadStatus[status.uploader].lastUpdated = status.last_updated;
-                    window.uploadStatus[status.uploader].status = status.status;
+                    window.uploadStatus[status.uploader].lastUpdated = status.last_updated ? new Date(status.last_updated) : null;
+                    window.uploadStatus[status.uploader].status = status.status || 'pending';
                 }
             });
             console.log(`✅ Loaded upload status from Supabase`);
         }
         
-        // ⭐ RESTORE THE FILTER STATE AFTER DATA IS LOADED
+        // Restore the filter state after data is loaded
         filterStatuses = savedFilterStatuses;
         
-        // ⭐ RE-APPLY FILTERS - Use a small delay to ensure DOM is ready
+        // Re-apply filters
         setTimeout(() => {
-            // Sync checkboxes if filter panel exists
             if (typeof syncFilterCheckboxes === 'function') {
-                try {
-                    syncFilterCheckboxes();
-                } catch (e) {
-                    console.warn('Could not sync filter checkboxes:', e.message);
-                }
+                try { syncFilterCheckboxes(); } catch (e) {}
             }
-            
-            // Apply filter
             if (typeof applyFilter === 'function') {
-                try {
-                    applyFilter();
-                } catch (e) {
-                    console.warn('Could not apply filter:', e.message);
-                }
+                try { applyFilter(); } catch (e) {}
             }
-            
-            // Update filter badge
             if (typeof updateFilterBadge === 'function') {
-                try {
-                    updateFilterBadge();
-                } catch (e) {
-                    console.warn('Could not update filter badge:', e.message);
-                }
+                try { updateFilterBadge(); } catch (e) {}
             }
-            
-            // Update statistics
             if (typeof updateStatistics === 'function') {
-                try {
-                    updateStatistics();
-                } catch (e) {
-                    console.warn('Could not update statistics:', e.message);
-                }
+                try { updateStatistics(); } catch (e) {}
             }
         }, 100);
         
@@ -718,7 +789,6 @@ if (awData) {
         
     } catch (error) {
         console.error('❌ Error syncing data from Supabase:', error);
-        // ⭐ Even on error, try to restore filter state
         filterStatuses = savedFilterStatuses;
         setTimeout(() => {
             if (typeof syncFilterCheckboxes === 'function') {
@@ -738,9 +808,6 @@ if (awData) {
 // ============================================================
 // HELPER FUNCTIONS
 // ============================================================
-// supabase.js - Fix convertSnakeToCamel
-
-// supabase.js - Fix convertSnakeToCamel
 
 function convertSnakeToCamel(obj) {
     const result = {};
@@ -748,7 +815,7 @@ function convertSnakeToCamel(obj) {
         let camelKey;
         // Special cases
         if (key === 'raw_aw_status') {
-            camelKey = 'rawAWStatus'; // ✅ CORRECT
+            camelKey = 'rawAWStatus';
         } else if (key === 'aw_status') {
             camelKey = 'awStatus';
         } else if (key === 'is_unplanned') {
@@ -830,16 +897,13 @@ function convertSnakeToCamel(obj) {
     return result;
 }
 
-// supabase.js - Fix convertCamelToSnake
-// supabase.js - Fix convertCamelToSnake
-
 function convertCamelToSnake(obj) {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
         let snakeKey;
         // Special cases for specific fields
         if (key === 'rawAWStatus') {
-            snakeKey = 'raw_aw_status'; // ✅ CORRECT: raw_aw_status
+            snakeKey = 'raw_aw_status';
         } else if (key === 'awStatus') {
             snakeKey = 'aw_status';
         } else if (key === 'isUnprinted') {
@@ -942,8 +1006,6 @@ function scheduleAutoSave() {
     }, 5000);
 }
 
-// supabase.js - REPLACE autoSaveAllData function
-
 async function autoSaveAllData() {
     console.log('💾 Auto-saving data to Supabase...');
     
@@ -965,7 +1027,7 @@ async function autoSaveAllData() {
             }
         }
         
-        // ⭐ CRITICAL FIX: Save schedules with proper data
+        // Save schedules
         const schedulesToSave = {};
         for (const [jobId, data] of Object.entries(jobSchedule)) {
             if (!data.startTime || !data.endTime) continue;
@@ -1000,9 +1062,26 @@ async function autoSaveAllData() {
 }
 
 // ============================================================
+// FIND JOB ID BY NUMBER
+// ============================================================
+function findJobIdByNumber(jobNumber) {
+    if (!jobNumber) return null;
+    const cleanNumber = jobNumber.trim();
+    if (!cleanNumber) return null;
+    for (const [id, data] of Object.entries(jobDatabase)) {
+        if (data.jobNumber && data.jobNumber.trim() === cleanNumber) {
+            return id;
+        }
+    }
+    return null;
+}
+
+// ============================================================
 // EXPOSE FUNCTIONS TO WINDOW
 // ============================================================
 window.initSupabase = initSupabase;
+window.initSupabaseAdmin = initSupabaseAdmin;
+window.createUserWithAdmin = createUserWithAdmin;
 window.supabaseSyncAllData = supabaseSyncAllData;
 window.supabaseLoadAllJobs = supabaseLoadAllJobs;
 window.supabaseGetJob = supabaseGetJob;
@@ -1029,5 +1108,6 @@ window.scheduleAutoSave = scheduleAutoSave;
 window.autoSaveAllData = autoSaveAllData;
 window.convertSnakeToCamel = convertSnakeToCamel;
 window.convertCamelToSnake = convertCamelToSnake;
+window.findJobIdByNumber = findJobIdByNumber;
 
 console.log('✅ supabase.js loaded');
