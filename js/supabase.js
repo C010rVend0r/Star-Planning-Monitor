@@ -594,21 +594,47 @@ async function supabaseSyncAllData() {
             supabaseGetUploadStatus()
         ]);
         
-        // Clear existing in-memory data
-        Object.keys(jobDatabase).forEach(key => delete jobDatabase[key]);
+        // ============================================================
+        // STEP 1: Clear existing in-memory data (but preserve references)
+        // ============================================================
+        // Don't clear jobDatabase completely - we need to preserve jobs
+        // but we need to clear PL and AW data to rebuild
+        
+        // Clear PL data
         Object.keys(plDatabase).forEach(key => delete plDatabase[key]);
+        
+        // Clear AW data
         Object.keys(window.awData).forEach(key => delete window.awData[key]);
+        
+        // Clear existing schedules - we'll rebuild from Supabase
         Object.keys(jobSchedule).forEach(key => delete jobSchedule[key]);
+        
+        // Clear speeds
         Object.keys(jobSpeeds).forEach(key => delete jobSpeeds[key]);
         
-        // Load jobs
-        if (jobs) {
+        // ============================================================
+        // STEP 2: Load jobs from Supabase
+        // ============================================================
+        let loadedJobCount = 0;
+        
+        if (jobs && jobs.length > 0) {
+            console.log(`📊 Loading ${jobs.length} jobs from Supabase...`);
+            
             jobs.forEach(job => {
                 const jobId = job.job_id;
-                jobDatabase[jobId] = convertSnakeToCamel(job);
+                
+                // Convert snake_case to camelCase
+                const jobData = convertSnakeToCamel(job);
+                
+                // Store in jobDatabase
+                jobDatabase[jobId] = jobData;
+                
+                // Initialize PL entry if not exists
                 if (!plDatabase[jobId]) {
                     plDatabase[jobId] = {};
                 }
+                
+                // Copy relevant fields to PL database
                 plDatabase[jobId].jobNumber = job.job_number;
                 plDatabase[jobId].jobName = job.name;
                 plDatabase[jobId].planningStatus = job.planning_status;
@@ -619,28 +645,60 @@ async function supabaseSyncAllData() {
                 plDatabase[jobId].statusDate = job.status_date;
                 plDatabase[jobId].estimatedDate = job.estimated_date;
                 plDatabase[jobId].prepressStatus = job.aw_status;
+                plDatabase[jobId].rawAWStatus = job.raw_aw_status;
+                plDatabase[jobId].priority = job.priority;
+                plDatabase[jobId].isComplete = job.is_complete || false;
+                plDatabase[jobId].isPlanned = job.is_planned || false;
+                plDatabase[jobId].isUnplanned = job.is_unplanned || false;
+                plDatabase[jobId].newPlat = job.new_plat;
+                plDatabase[jobId].materialAvailability = job.material_availability;
+                plDatabase[jobId].delivered = job.delivered;
+                plDatabase[jobId].delivered2 = job.delivered2;
+                plDatabase[jobId].cuttingMethod = job.cutting_method;
+                plDatabase[jobId].film = job.film;
+                plDatabase[jobId].thickness = job.thickness;
+                plDatabase[jobId].materialType = job.material_type;
+                plDatabase[jobId].downtime = job.downtime;
+                
+                loadedJobCount++;
             });
-            console.log(`✅ Loaded ${jobs.length} jobs from Supabase`);
+            
+            console.log(`✅ Loaded ${loadedJobCount} jobs from Supabase`);
+        } else {
+            console.log('ℹ️ No jobs found in Supabase');
         }
         
-        // Load PL data
-        if (plData) {
+        // ============================================================
+        // STEP 3: Load PL data from Supabase
+        // ============================================================
+        if (plData && plData.length > 0) {
+            console.log(`📊 Loading ${plData.length} PL records from Supabase...`);
+            
             plData.forEach(pl => {
                 const jobId = pl.job_id;
+                const plCamel = convertSnakeToCamel(pl);
+                
                 if (plDatabase[jobId]) {
-                    Object.assign(plDatabase[jobId], convertSnakeToCamel(pl));
+                    // Merge with existing PL data
+                    Object.assign(plDatabase[jobId], plCamel);
                 } else {
-                    plDatabase[jobId] = convertSnakeToCamel(pl);
+                    plDatabase[jobId] = plCamel;
                 }
             });
+            
             console.log(`✅ Loaded ${plData.length} PL records from Supabase`);
         }
         
-        // Load AW data
-        if (awDataResult) {
+        // ============================================================
+        // STEP 4: Load AW data from Supabase
+        // ============================================================
+        if (awDataResult && awDataResult.length > 0) {
             console.log(`📊 Loading ${awDataResult.length} AW records from Supabase...`);
+            
             awDataResult.forEach(aw => {
                 const jobNumber = aw.job_number;
+                
+                // Store in awData
                 window.awData[jobNumber] = {
                     status: aw.status || 'Unknown',
                     rawStatus: aw.raw_status || aw.status || 'Unknown',
@@ -666,13 +724,20 @@ async function supabaseSyncAllData() {
                     }
                 }
             });
+            
             console.log(`✅ Loaded ${awDataResult.length} AW records from Supabase`);
         }
         
-        // Load schedules
-        if (schedules) {
+        // ============================================================
+        // STEP 5: Load schedules from Supabase (CRITICAL FIX)
+        // ============================================================
+        if (schedules && schedules.length > 0) {
+            console.log(`📊 Loading ${schedules.length} schedules from Supabase...`);
+            
+            // Get active job IDs (Planned) and completed job IDs
             const activeJobIds = new Set();
             const completeJobIds = new Set();
+            const printedJobIds = new Set();
             
             for (const [jobId, data] of Object.entries(jobDatabase)) {
                 if (data.planningStatus === 'Complete' || data.isComplete === true) {
@@ -684,21 +749,31 @@ async function supabaseSyncAllData() {
             
             console.log(`📊 Found ${activeJobIds.size} active jobs, ${completeJobIds.size} completed jobs`);
             
+            // Group schedules by timeline
             const schedulesByTimeline = {};
             let loadedCount = 0;
             let skippedCount = 0;
             
-            schedules.forEach(schedule => {
+            for (const schedule of schedules) {
                 const jobId = schedule.job_id;
                 
-                if (completeJobIds.has(jobId)) {
+                // Skip if job doesn't exist in database
+                if (!jobDatabase[jobId]) {
                     skippedCount++;
-                    return;
+                    continue;
                 }
                 
-                if (!activeJobIds.has(jobId) && !schedule.is_printed) {
+                // Skip completed jobs that are not printed (they should be removed)
+                if (completeJobIds.has(jobId) && !schedule.is_printed) {
                     skippedCount++;
-                    return;
+                    console.log(`⏭️ Skipping completed job ${jobId} schedule (not printed)`);
+                    continue;
+                }
+                
+                // Skip active jobs that are not planned
+                if (!activeJobIds.has(jobId) && !schedule.is_printed && !completeJobIds.has(jobId)) {
+                    skippedCount++;
+                    continue;
                 }
                 
                 const timelineId = schedule.timeline_id;
@@ -706,6 +781,7 @@ async function supabaseSyncAllData() {
                     schedulesByTimeline[timelineId] = [];
                 }
                 
+                // Store the schedule
                 schedulesByTimeline[timelineId].push({
                     jobId: jobId,
                     startTime: new Date(schedule.start_time).getTime(),
@@ -713,17 +789,22 @@ async function supabaseSyncAllData() {
                     timelineId: timelineId,
                     isPrinted: schedule.is_printed || false
                 });
+                
                 loadedCount++;
-            });
+            }
             
             console.log(`📊 Loaded ${loadedCount} schedules (skipped ${skippedCount})`);
             
-            for (const [timelineId, schedulesList] of Object.entries(schedulesByTimeline)) {
-                const printed = schedulesList.filter(s => s.isPrinted === true);
-                const nonPrinted = schedulesList.filter(s => s.isPrinted !== true);
+            // Process each timeline's schedules
+            for (const [timelineId, scheduleList] of Object.entries(schedulesByTimeline)) {
+                // Separate printed and non-printed jobs
+                const printed = scheduleList.filter(s => s.isPrinted === true);
+                const nonPrinted = scheduleList.filter(s => s.isPrinted !== true);
                 
+                // Sort printed jobs by end time (newest first)
                 printed.sort((a, b) => b.endTime - a.endTime);
                 
+                // Keep only the most recent printed job per timeline
                 const keptPrinted = printed.slice(0, 1);
                 const removedPrinted = printed.slice(1);
                 
@@ -731,31 +812,53 @@ async function supabaseSyncAllData() {
                     console.log(`🗑️ Filtered out old printed job ${s.jobId} from ${timelineId}`);
                 });
                 
+                // Combine non-printed and kept printed jobs
                 const finalSchedules = [...nonPrinted, ...keptPrinted];
-                finalSchedules.forEach(s => {
+                
+                // Store in jobSchedule
+                for (const s of finalSchedules) {
                     jobSchedule[s.jobId] = {
                         startTime: s.startTime,
                         endTime: s.endTime,
                         timelineId: s.timelineId,
                         isPrinted: s.isPrinted
                     };
-                });
+                    
+                    // Update job's planning status if it's printed
+                    if (s.isPrinted && jobDatabase[s.jobId]) {
+                        jobDatabase[s.jobId].planningStatus = 'Complete';
+                        jobDatabase[s.jobId].isComplete = true;
+                        if (plDatabase[s.jobId]) {
+                            plDatabase[s.jobId].planningStatus = 'Complete';
+                            plDatabase[s.jobId].isComplete = true;
+                        }
+                    }
+                }
             }
             
             console.log(`✅ Loaded ${Object.keys(jobSchedule).length} schedules from Supabase (filtered)`);
+        } else {
+            console.log('ℹ️ No schedules found in Supabase');
         }
         
-        // Load speeds
-        if (speeds) {
+        // ============================================================
+        // STEP 6: Load speeds from Supabase
+        // ============================================================
+        if (speeds && speeds.length > 0) {
+            console.log(`📊 Loading ${speeds.length} speeds from Supabase...`);
+            
             speeds.forEach(speed => {
                 const jobId = speed.job_id;
                 jobSpeeds[jobId] = speed.speed;
             });
+            
             console.log(`✅ Loaded ${speeds.length} speeds from Supabase`);
         }
         
-        // Load upload status
-        if (uploadStatus) {
+        // ============================================================
+        // STEP 7: Load upload status from Supabase
+        // ============================================================
+        if (uploadStatus && uploadStatus.length > 0) {
             uploadStatus.forEach(status => {
                 if (window.uploadStatus && window.uploadStatus[status.uploader]) {
                     window.uploadStatus[status.uploader].lastUpdated = status.last_updated ? new Date(status.last_updated) : null;
@@ -765,7 +868,9 @@ async function supabaseSyncAllData() {
             console.log(`✅ Loaded upload status from Supabase`);
         }
         
-        // Restore the filter state after data is loaded
+        // ============================================================
+        // STEP 8: Restore filter state
+        // ============================================================
         filterStatuses = savedFilterStatuses;
         
         // Re-apply filters
@@ -784,11 +889,68 @@ async function supabaseSyncAllData() {
             }
         }, 100);
         
-        console.log('✅ Sync complete! Filter state restored.');
+        // ============================================================
+        // STEP 9: Restore schedules to timelines (CRITICAL)
+        // ============================================================
+        setTimeout(() => {
+            console.log('🔄 Restoring schedules to timelines...');
+            
+            // Check if we have any schedules in memory
+            const scheduleEntries = Object.entries(jobSchedule);
+            if (scheduleEntries.length > 0) {
+                console.log(`📊 Found ${scheduleEntries.length} schedules to restore`);
+                
+                // Update each job's time display
+                for (const [jobId, schedule] of scheduleEntries) {
+                    const jobElement = document.querySelector(`.job[data-job-id="${jobId}"]`);
+                    if (jobElement) {
+                        updateJobTimeDisplay(jobId);
+                    }
+                }
+                
+                // Refresh all timelines
+                document.querySelectorAll('.timeline').forEach(timeline => {
+                    const container = timeline.closest('.timeline-container');
+                    if (container) {
+                        container.querySelectorAll('.timeline-ruler, .timeline-date-header').forEach(el => el.remove());
+                    }
+                    delete timelineStateCache[timeline.id];
+                    
+                    // Scale and update
+                    scaleTimeline(timeline.id);
+                    updateJobColors(timeline.id);
+                    updateNowIndicatorPosition(timeline);
+                    
+                    // Ensure printed jobs are at the beginning
+                    sortPrintedJobs(timeline);
+                });
+                
+                // Update all visual elements
+                updateAllMachineStatuses();
+                updateAllJobColors();
+                updateAllJobTimes();
+                updateAllNowIndicators();
+                applySmartZoom();
+                
+                setTimeout(updateAllTimelineScrollPositions, 300);
+                
+                console.log('✅ Schedules restored to timelines');
+            } else {
+                console.log('ℹ️ No schedules to restore');
+            }
+        }, 500);
+        
+        // ============================================================
+        // STEP 10: Log completion
+        // ============================================================
+        console.log(`✅ Sync complete! Loaded ${loadedJobCount} jobs, ${Object.keys(jobSchedule).length} schedules, ${Object.keys(jobSpeeds).length} speeds`);
+        
         return true;
         
     } catch (error) {
         console.error('❌ Error syncing data from Supabase:', error);
+        
+        // Restore filter state even on error
         filterStatuses = savedFilterStatuses;
         setTimeout(() => {
             if (typeof syncFilterCheckboxes === 'function') {
@@ -801,6 +963,7 @@ async function supabaseSyncAllData() {
                 try { updateFilterBadge(); } catch(e) {}
             }
         }, 100);
+        
         return false;
     }
 }
