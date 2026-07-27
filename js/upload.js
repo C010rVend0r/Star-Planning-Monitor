@@ -741,6 +741,9 @@ function handleAWUpload(file) {
 // ============================================================
 // HANDLE PL UPLOAD - OPTIMIZED WITH BATCH PROCESSING & PRIORITY
 // ============================================================
+// ============================================================
+// HANDLE PL UPLOAD - OPTIMIZED WITH BATCH PROCESSING & PRIORITY
+// ============================================================
 async function handlePLUpload(file) {
     console.log('⚡ PL UPLOAD STARTED:', file.name);
     showUploadProgress('📖 Reading file...', 5);
@@ -817,56 +820,74 @@ async function handlePLUpload(file) {
                 const jobNumber = String(row[0] || '').trim();
                 if (!jobNumber) continue;
                 
-// ============================================
-// READ ALL FIELDS FROM EXCEL
-// ============================================
-const jobName = String(row[1] || '').trim() || 'Unnamed Job';
-const newPlat = String(row[2] || '').trim() || '';
-const color = String(row[3] || '').trim() || ''; // Column D (index 3)
-const materialAvailability = String(row[4] || '').trim() || '';
+                // ⭐⭐⭐ CRITICAL FIX: Generate jobId from jobNumber
+                // Use a consistent pattern: 'job-' + jobNumber
+                // Or use findJobIdByNumber to check if it already exists
+                let jobId = findJobIdByNumber(jobNumber);
+                if (!jobId) {
+                    // Generate a new job ID based on job number
+                    // Clean the job number for use as ID
+                    const cleanJobNumber = jobNumber.replace(/[^a-zA-Z0-9]/g, '');
+                    jobId = `job-${cleanJobNumber}`;
+                    
+                    // Make sure it's unique
+                    let counter = 1;
+                    while (jobDatabase[jobId] || plDatabase[jobId]) {
+                        jobId = `job-${cleanJobNumber}-${counter}`;
+                        counter++;
+                    }
+                }
+                
+                // ============================================
+                // READ ALL FIELDS FROM EXCEL
+                // ============================================
+                const jobName = String(row[1] || '').trim() || 'Unnamed Job';
+                const newPlat = String(row[2] || '').trim() || '';
+                const color = String(row[3] || '').trim() || ''; // Column D (index 3)
+                const materialAvailability = String(row[4] || '').trim() || '';
 
-// ⭐ PLANNING STATUS - Normalize to valid values
-let planningStatus = String(row[5] || '').trim() || 'Unplanned';
-// Normalize planning status to valid values
-const validPlanningStatuses = ['Planned', 'Unplanned', 'Complete', 'PL-Deleted', 'PL-Hold'];
-const statusMap = {
-    'planned': 'Planned',
-    'unplanned': 'Unplanned',
-    'complete': 'Complete',
-    'complete?': 'Complete',
-    'printed': 'Complete',
-    'deleted': 'PL-Deleted',
-    'hold': 'PL-Hold',
-    'on hold': 'PL-Hold'
-};
-const normalizedStatus = statusMap[planningStatus.toLowerCase()] || planningStatus;
-planningStatus = validPlanningStatuses.includes(normalizedStatus) ? normalizedStatus : 'Unplanned';
+                // ⭐ PLANNING STATUS - Normalize to valid values
+                let planningStatus = String(row[5] || '').trim() || 'Unplanned';
+                // Normalize planning status to valid values
+                const validPlanningStatuses = ['Planned', 'Unplanned', 'Complete', 'PL-Deleted', 'PL-Hold'];
+                const statusMap = {
+                    'planned': 'Planned',
+                    'unplanned': 'Unplanned',
+                    'complete': 'Complete',
+                    'complete?': 'Complete',
+                    'printed': 'Complete',
+                    'deleted': 'PL-Deleted',
+                    'hold': 'PL-Hold',
+                    'on hold': 'PL-Hold'
+                };
+                const normalizedStatus = statusMap[planningStatus.toLowerCase()] || planningStatus;
+                planningStatus = validPlanningStatuses.includes(normalizedStatus) ? normalizedStatus : 'Unplanned';
 
-const delivered = String(row[6] || '').trim() || '';
-const delivered2 = String(row[7] || '').trim() || '';
-const machine = String(row[8] || '').trim() || '';
+                const delivered = String(row[6] || '').trim() || '';
+                const delivered2 = String(row[7] || '').trim() || '';
+                const machine = String(row[8] || '').trim() || '';
 
-// ✅ PRIORITY - Cell I (index 9) - smaller number = higher priority
-let priority = parseInt(row[9]);
-if (isNaN(priority) || priority < 0) {
-    priority = 999;
-}
+                // ✅ PRIORITY - Cell I (index 9) - smaller number = higher priority
+                let priority = parseInt(row[9]);
+                if (isNaN(priority) || priority < 0) {
+                    priority = 999;
+                }
 
-const cuttingMethod = String(row[10] || '').trim() || '';
-const quantity = parseFloat(row[11]) || 0;
-const film = String(row[12] || '').trim() || '';
-const thickness = String(row[13] || '').trim() || '';
-const materialType = String(row[14] || '').trim() || '';
-const machineSpeed = parseFloat(row[15]) || 200;
-const meters = parseFloat(row[16]) || 0;
-const setupTime = parseFloat(row[17]) || 120;
-const requiredTime = parseFloat(row[18]) || 0;
-const plannedSpeed = parseFloat(row[19]) || 200;
-const actualSpeed = parseFloat(row[20]) || 200;
-const plannedSetup = parseFloat(row[21]) || 120;
-const actualSetup = parseFloat(row[22]) || 0;
-const downtime = parseFloat(row[23]) || 0;
-const printingDuration = parseFloat(row[24]) || 0;
+                const cuttingMethod = String(row[10] || '').trim() || '';
+                const quantity = parseFloat(row[11]) || 0;
+                const film = String(row[12] || '').trim() || '';
+                const thickness = String(row[13] || '').trim() || '';
+                const materialType = String(row[14] || '').trim() || '';
+                const machineSpeed = parseFloat(row[15]) || 200;
+                const meters = parseFloat(row[16]) || 0;
+                const setupTime = parseFloat(row[17]) || 120;
+                const requiredTime = parseFloat(row[18]) || 0;
+                const plannedSpeed = parseFloat(row[19]) || 200;
+                const actualSpeed = parseFloat(row[20]) || 200;
+                const plannedSetup = parseFloat(row[21]) || 120;
+                const actualSetup = parseFloat(row[22]) || 0;
+                const downtime = parseFloat(row[23]) || 0;
+                const printingDuration = parseFloat(row[24]) || 0;
                 
                 // Check AW data
                 let awStatus = 'Unknown';
@@ -890,25 +911,25 @@ const printingDuration = parseFloat(row[24]) || 0;
                     jobsWithAW++;
                 }
                 
-// After parsing the planningStatus, set the status flags
-const isPlanned = planningStatus === 'Planned';
-const isComplete = planningStatus === 'Complete';
-const isUnplanned = planningStatus === 'Unplanned';
-const isDeleted = planningStatus === 'PL-Deleted';
-const isHold = planningStatus === 'PL-Hold';
+                // After parsing the planningStatus, set the status flags
+                const isPlanned = planningStatus === 'Planned';
+                const isComplete = planningStatus === 'Complete';
+                const isUnplanned = planningStatus === 'Unplanned';
+                const isDeleted = planningStatus === 'PL-Deleted';
+                const isHold = planningStatus === 'PL-Hold';
 
-// Update the effective status based on planning status
-let effectiveStatus = awStatus;
-if (isComplete) effectiveStatus = 'Complete';
-else if (isPlanned) effectiveStatus = 'Planned';
-else if (isUnplanned) effectiveStatus = 'Unplanned';
-else if (isDeleted) effectiveStatus = 'PL-Deleted';
-else if (isHold) effectiveStatus = 'PL-Hold';
-else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
-    effectiveStatus = planningStatus || 'Unplanned';
-}
+                // Update the effective status based on planning status
+                let effectiveStatus = awStatus;
+                if (isComplete) effectiveStatus = 'Complete';
+                else if (isPlanned) effectiveStatus = 'Planned';
+                else if (isUnplanned) effectiveStatus = 'Unplanned';
+                else if (isDeleted) effectiveStatus = 'PL-Deleted';
+                else if (isHold) effectiveStatus = 'PL-Hold';
+                else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
+                    effectiveStatus = planningStatus || 'Unplanned';
+                }
                 
-                // Store in memory
+                // ⭐⭐⭐ CRITICAL FIX: Store in memory with the generated jobId
                 jobDatabase[jobId] = {
                     name: jobName,
                     jobNumber: jobNumber,
@@ -927,7 +948,6 @@ else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
                     isHold: isHold,
                     priority: priority,
                     newPlat: newPlat,
-                    // color: color,
                     materialAvailability: materialAvailability,
                     delivered: delivered,
                     delivered2: delivered2,
@@ -952,7 +972,6 @@ else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
                     jobNumber: jobNumber,
                     jobName: jobName,
                     newPlat: newPlat,
-                    // color: color,
                     prepressStatus: awStatus || 'Unknown',
                     materialAvailability: materialAvailability,
                     planningStatus: planningStatus || 'Unplanned',
@@ -1005,7 +1024,6 @@ else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
                     is_deleted: isDeleted || false,
                     is_hold: isHold || false,
                     new_plat: newPlat || '',
-                    // color: color || '',
                     material_availability: materialAvailability || '',
                     delivered: delivered || '',
                     delivered2: delivered2 || '',
@@ -1030,7 +1048,6 @@ else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
                     job_number: jobNumber,
                     job_name: jobName,
                     new_plat: newPlat || '',
-                    // color: color || '',
                     prepress_status: awStatus || 'Unknown',
                     material_availability: materialAvailability || '',
                     planning_status: planningStatus || 'Unplanned',
@@ -1178,191 +1195,185 @@ else if (awStatus === 'Unknown' || awStatus === 'Missing Data') {
             await supabaseSyncAllData();
             
             // ============================================
-            // STEP 5: OPTIMIZED TIMELINE UPDATE - Don't clear all jobs
+            // STEP 5: OPTIMIZED TIMELINE UPDATE
             // ============================================
-// ============================================
-// STEP 5: OPTIMIZED TIMELINE UPDATE - FIXED
-// ============================================
-showUploadProgress('📋 Updating timelines...', 95);
-
-// Group Planned jobs by machine
-const plannedJobsByMachine = {};
-for (const [jobId, jobData] of Object.entries(jobDatabase)) {
-    if (jobData.planningStatus === 'Planned' && jobData.machine) {
-        const machine = jobData.machine;
-        if (!plannedJobsByMachine[machine]) {
-            plannedJobsByMachine[machine] = [];
-        }
-        plannedJobsByMachine[machine].push({
-            jobId: jobId,
-            jobData: jobData,
-            priority: jobData.priority || 999
-        });
-    }
-}
-
-// Sort each machine's jobs by priority
-for (const machine in plannedJobsByMachine) {
-    plannedJobsByMachine[machine].sort((a, b) => a.priority - b.priority);
-}
-
-let timelineJobsAdded = 0;
-const schedulesToSave = [];
-
-// Process each machine's timeline
-for (const [machine, jobs] of Object.entries(plannedJobsByMachine)) {
-    const timelineId = getTimelineId(machine);
-    if (!timelineId) continue;
-    
-    const timeline = document.getElementById(timelineId);
-    if (!timeline) continue;
-    
-    // ⭐ CRITICAL FIX: Get the correct start time for the first job
-    // This handles printed jobs correctly
-    let currentTime = getFirstJobStartTime(timelineId);
-    
-    // Get existing jobs on this timeline
-    const existingJobIds = new Set();
-    timeline.querySelectorAll('.job:not(.job-printed)').forEach(job => {
-        const id = job.getAttribute('data-job-id');
-        existingJobIds.add(id);
-    });
-    
-    // Remove jobs that are no longer Planned
-    const jobsToRemove = [];
-    for (const jobId of existingJobIds) {
-        if (!jobDatabase[jobId] || jobDatabase[jobId].planningStatus !== 'Planned') {
-            jobsToRemove.push(jobId);
-        }
-    }
-    
-    for (const jobId of jobsToRemove) {
-        const jobElement = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
-        if (jobElement) {
-            jobElement.remove();
-            delete jobSchedule[jobId];
-        }
-    }
-    
-    // Get remaining active jobs
-    const remainingJobs = timeline.querySelectorAll('.job:not(.job-printed)');
-    
-    // ⭐ CRITICAL FIX: If there are remaining jobs, find the first one's start time
-    if (remainingJobs.length > 0) {
-        const firstRemaining = remainingJobs[0];
-        const firstId = firstRemaining.getAttribute('data-job-id');
-        if (jobSchedule[firstId]) {
-            currentTime = jobSchedule[firstId].startTime;
-            console.log(`📊 Timeline ${timelineId} has existing jobs, starting at: ${new Date(currentTime).toLocaleTimeString()}`);
-        }
-    }
-    
-    // Recalculate from the first job to ensure consistency
-    console.log(`📊 Timeline ${timelineId} starting time: ${new Date(currentTime).toLocaleTimeString()}`);
-    
-    // Add new Planned jobs in priority order
-    for (const { jobId, jobData } of jobs) {
-        const existingJob = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
-        if (existingJob) {
-            // Update existing job
-            const newJobElement = createJobElement(jobId, jobData);
-            existingJob.replaceWith(newJobElement);
-            if (jobSchedule[jobId]) {
-                updateJobTimeDisplay(jobId);
-            }
-            continue;
-        }
-        
-        // Add new job
-        const duration = calculateJobDuration(jobData, jobId) * 60000;
-        const endTime = currentTime + duration;
-        
-        const jobElement = createJobElement(jobId, jobData);
-        const firstPrinted = timeline.querySelector('.job.job-printed');
-        if (firstPrinted) {
-            // Insert after printed jobs
-            const printedCount = timeline.querySelectorAll('.job.job-printed').length;
-            const activeJobs = timeline.querySelectorAll('.job:not(.job-printed)');
+            showUploadProgress('📋 Updating timelines...', 95);
             
-            // Find the correct position based on priority
-            let inserted = false;
-            for (let i = 0; i < activeJobs.length; i++) {
-                const existing = activeJobs[i];
-                const existingId = existing.getAttribute('data-job-id');
-                const existingPriority = jobDatabase[existingId]?.priority || 999;
-                const newPriority = jobData.priority || 999;
+            // Group Planned jobs by machine
+            const plannedJobsByMachine = {};
+            for (const [jobId, jobData] of Object.entries(jobDatabase)) {
+                if (jobData.planningStatus === 'Planned' && jobData.machine) {
+                    const machine = jobData.machine;
+                    if (!plannedJobsByMachine[machine]) {
+                        plannedJobsByMachine[machine] = [];
+                    }
+                    plannedJobsByMachine[machine].push({
+                        jobId: jobId,
+                        jobData: jobData,
+                        priority: jobData.priority || 999
+                    });
+                }
+            }
+            
+            // Sort each machine's jobs by priority
+            for (const machine in plannedJobsByMachine) {
+                plannedJobsByMachine[machine].sort((a, b) => a.priority - b.priority);
+            }
+            
+            let timelineJobsAdded = 0;
+            const schedulesToSave = [];
+            
+            // Process each machine's timeline
+            for (const [machine, jobs] of Object.entries(plannedJobsByMachine)) {
+                const timelineId = getTimelineId(machine);
+                if (!timelineId) continue;
                 
-                if (newPriority < existingPriority) {
-                    timeline.insertBefore(jobElement, existing);
-                    inserted = true;
-                    break;
+                const timeline = document.getElementById(timelineId);
+                if (!timeline) continue;
+                
+                // Get the correct start time for the first job
+                let currentTime = getFirstJobStartTime(timelineId);
+                
+                // Get existing jobs on this timeline
+                const existingJobIds = new Set();
+                timeline.querySelectorAll('.job:not(.job-printed)').forEach(job => {
+                    const id = job.getAttribute('data-job-id');
+                    existingJobIds.add(id);
+                });
+                
+                // Remove jobs that are no longer Planned
+                const jobsToRemove = [];
+                for (const jobId of existingJobIds) {
+                    if (!jobDatabase[jobId] || jobDatabase[jobId].planningStatus !== 'Planned') {
+                        jobsToRemove.push(jobId);
+                    }
+                }
+                
+                for (const jobId of jobsToRemove) {
+                    const jobElement = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
+                    if (jobElement) {
+                        jobElement.remove();
+                        delete jobSchedule[jobId];
+                    }
+                }
+                
+                // Get remaining active jobs
+                const remainingJobs = timeline.querySelectorAll('.job:not(.job-printed)');
+                
+                // If there are remaining jobs, find the first one's start time
+                if (remainingJobs.length > 0) {
+                    const firstRemaining = remainingJobs[0];
+                    const firstId = firstRemaining.getAttribute('data-job-id');
+                    if (jobSchedule[firstId]) {
+                        currentTime = jobSchedule[firstId].startTime;
+                        console.log(`📊 Timeline ${timelineId} has existing jobs, starting at: ${new Date(currentTime).toLocaleTimeString()}`);
+                    }
+                }
+                
+                console.log(`📊 Timeline ${timelineId} starting time: ${new Date(currentTime).toLocaleTimeString()}`);
+                
+                // Add new Planned jobs in priority order
+                for (const { jobId, jobData } of jobs) {
+                    const existingJob = timeline.querySelector(`.job[data-job-id="${jobId}"]`);
+                    if (existingJob) {
+                        // Update existing job
+                        const newJobElement = createJobElement(jobId, jobData);
+                        existingJob.replaceWith(newJobElement);
+                        if (jobSchedule[jobId]) {
+                            updateJobTimeDisplay(jobId);
+                        }
+                        continue;
+                    }
+                    
+                    // Add new job
+                    const duration = calculateJobDuration(jobData, jobId) * 60000;
+                    const endTime = currentTime + duration;
+                    
+                    const jobElement = createJobElement(jobId, jobData);
+                    const firstPrinted = timeline.querySelector('.job.job-printed');
+                    if (firstPrinted) {
+                        // Insert after printed jobs
+                        const activeJobs = timeline.querySelectorAll('.job:not(.job-printed)');
+                        
+                        // Find the correct position based on priority
+                        let inserted = false;
+                        for (let i = 0; i < activeJobs.length; i++) {
+                            const existing = activeJobs[i];
+                            const existingId = existing.getAttribute('data-job-id');
+                            const existingPriority = jobDatabase[existingId]?.priority || 999;
+                            const newPriority = jobData.priority || 999;
+                            
+                            if (newPriority < existingPriority) {
+                                timeline.insertBefore(jobElement, existing);
+                                inserted = true;
+                                break;
+                            }
+                        }
+                        if (!inserted) {
+                            // Insert at the end of active jobs
+                            if (activeJobs.length > 0) {
+                                timeline.insertBefore(jobElement, activeJobs[activeJobs.length - 1].nextSibling);
+                            } else {
+                                timeline.insertBefore(jobElement, firstPrinted);
+                            }
+                        }
+                    } else {
+                        // No printed jobs, append at the end
+                        timeline.appendChild(jobElement);
+                    }
+                    
+                    jobSchedule[jobId] = {
+                        startTime: currentTime,
+                        endTime: endTime,
+                        timelineId: timelineId,
+                        isPrinted: false
+                    };
+                    
+                    schedulesToSave.push({
+                        job_id: jobId,
+                        start_time: new Date(currentTime).toISOString(),
+                        end_time: new Date(endTime).toISOString(),
+                        timeline_id: timelineId,
+                        is_printed: false
+                    });
+                    
+                    currentTime = endTime;
+                    timelineJobsAdded++;
+                }
+                
+                // Sort by priority
+                if (typeof sortTimelineJobsByPriority === 'function') {
+                    sortTimelineJobsByPriority(timeline);
+                }
+                
+                // Clear cache and rescale
+                delete timelineStateCache[timelineId];
+                scaleTimeline(timelineId);
+                updateMachineStatus(timeline.closest('.machine'));
+            }
+            
+            // Save schedules to Supabase
+            if (schedulesToSave.length > 0) {
+                showUploadProgress(`💾 Saving ${schedulesToSave.length} schedules...`, 97);
+                try {
+                    for (let i = 0; i < schedulesToSave.length; i += 100) {
+                        const batch = schedulesToSave.slice(i, i + 100);
+                        const scheduleMap = {};
+                        for (const s of batch) {
+                            scheduleMap[s.job_id] = {
+                                start_time: s.start_time,
+                                end_time: s.end_time,
+                                timeline_id: s.timeline_id,
+                                is_printed: s.is_printed
+                            };
+                        }
+                        await supabaseSaveMultipleSchedules(scheduleMap);
+                    }
+                    console.log(`✅ Saved ${schedulesToSave.length} schedules to Supabase`);
+                } catch (e) {
+                    console.warn('⚠️ Could not save schedules:', e.message);
                 }
             }
-            if (!inserted) {
-                // Insert at the end of active jobs (before any future additions)
-                if (activeJobs.length > 0) {
-                    timeline.insertBefore(jobElement, activeJobs[activeJobs.length - 1].nextSibling);
-                } else {
-                    timeline.insertBefore(jobElement, firstPrinted);
-                }
-            }
-        } else {
-            // No printed jobs, append at the end
-            timeline.appendChild(jobElement);
-        }
-        
-        jobSchedule[jobId] = {
-            startTime: currentTime,
-            endTime: endTime,
-            timelineId: timelineId,
-            isPrinted: false
-        };
-        
-        schedulesToSave.push({
-            job_id: jobId,
-            start_time: new Date(currentTime).toISOString(),
-            end_time: new Date(endTime).toISOString(),
-            timeline_id: timelineId,
-            is_printed: false
-        });
-        
-        currentTime = endTime;
-        timelineJobsAdded++;
-    }
-    
-    // Sort by priority
-    if (typeof sortTimelineJobsByPriority === 'function') {
-        sortTimelineJobsByPriority(timeline);
-    }
-    
-    // Clear cache and rescale
-    delete timelineStateCache[timelineId];
-    scaleTimeline(timelineId);
-    updateMachineStatus(timeline.closest('.machine'));
-}
-
-// Save schedules to Supabase
-if (schedulesToSave.length > 0) {
-    showUploadProgress(`💾 Saving ${schedulesToSave.length} schedules...`, 97);
-    try {
-        for (let i = 0; i < schedulesToSave.length; i += 100) {
-            const batch = schedulesToSave.slice(i, i + 100);
-            const scheduleMap = {};
-            for (const s of batch) {
-                scheduleMap[s.job_id] = {
-                    start_time: s.start_time,
-                    end_time: s.end_time,
-                    timeline_id: s.timeline_id,
-                    is_printed: s.is_printed
-                };
-            }
-            await supabaseSaveMultipleSchedules(scheduleMap);
-        }
-        console.log(`✅ Saved ${schedulesToSave.length} schedules to Supabase`);
-    } catch (e) {
-        console.warn('⚠️ Could not save schedules:', e.message);
-    }
-}
             
             // ============================================
             // STEP 6: FINAL UI UPDATE
@@ -1424,18 +1435,16 @@ if (schedulesToSave.length > 0) {
         hideUploadProgress();
         alert('Error reading file. Please try again.');
     };
-
-
-// 🔴 CRITICAL FIX: Update qasem status with proper timestamp
-const now = new Date();
-uploadStatus['qasem'].lastUpdated = now;
-uploadStatus['qasem'].status = 'updated';
-if (typeof supabaseUpdateUploadStatus === 'function') {
-    supabaseUpdateUploadStatus('qasem', 'updated');
-}
+    
+    // 🔴 CRITICAL FIX: Update qasem status with proper timestamp
+    const now = new Date();
+    uploadStatus['qasem'].lastUpdated = now;
+    uploadStatus['qasem'].status = 'updated';
+    if (typeof supabaseUpdateUploadStatus === 'function') {
+        supabaseUpdateUploadStatus('qasem', 'updated');
+    }
     reader.readAsArrayBuffer(file);
 }
-
 // ============================================================
 // START UPLOAD STATUS MONITORING - FIXED
 // ============================================================
