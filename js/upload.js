@@ -6,7 +6,7 @@
 const uploadStatus = {
     mahmoud: { lastUpdated: null, status: 'pending' },
     raed: { lastUpdated: null, status: 'pending' },
-    rabia: { lastUpdated: null, status: 'pending' },
+    rabea: { lastUpdated: null, status: 'pending' },
     qasem: { lastUpdated: null, status: 'pending' }
 };
 
@@ -16,7 +16,7 @@ let statusCheckInterval = null;
 const SHEET_PATTERNS = {
     mahmoud: ['mahmoud'],
     raed: ['raed'],
-    rabia: ['rabia'],
+    rabea: ['rabea'],
     fullData: ['full data', 'fulldata', 'full']
 };
 
@@ -38,20 +38,20 @@ function calculateEstimatedDate(startDate, daysToAdd) {
 // DETECT UPLOADER
 // ============================================================
 function detectUploader(sheetNames) {
-    const results = { mahmoud: false, raed: false, rabia: false, fullData: false };
+    const results = { mahmoud: false, raed: false, rabea: false, fullData: false };
     const lowerSheetNames = sheetNames.map(name => name.toLowerCase().trim());
     
     if (lowerSheetNames.some(name => SHEET_PATTERNS.fullData.some(pattern => name.includes(pattern)))) {
         results.fullData = true;
         results.mahmoud = true;
         results.raed = true;
-        results.rabia = true;
+        results.rabea = true;
         return results;
     }
     
     if (lowerSheetNames.some(name => SHEET_PATTERNS.mahmoud.some(pattern => name.includes(pattern)))) results.mahmoud = true;
     if (lowerSheetNames.some(name => SHEET_PATTERNS.raed.some(pattern => name.includes(pattern)))) results.raed = true;
-    if (lowerSheetNames.some(name => SHEET_PATTERNS.rabia.some(pattern => name.includes(pattern)))) results.rabia = true;
+    if (lowerSheetNames.some(name => SHEET_PATTERNS.rabea.some(pattern => name.includes(pattern)))) results.rabea = true;
     
     return results;
 }
@@ -132,7 +132,7 @@ function updateStatusIndicators(allUpdated = null) {
     const statusConfigs = [
         { key: 'mahmoud', label: 'Mahmoud' },
         { key: 'raed', label: 'Raed' },
-        { key: 'rabia', label: 'Rabia' },
+        { key: 'rabea', label: 'rabea' },
         { key: 'qasem', label: 'Qasem' }
     ];
     
@@ -430,6 +430,7 @@ async function saveScheduleToSupabase(jobId, timelineId, startTime, endTime) {
 // ============================================================
 // EXCEL UPLOAD SETUP
 // ============================================================
+// to accept .xlsm files
 function setupExcelUploads() {
     console.log('Setting up Excel uploads...');
     
@@ -437,6 +438,9 @@ function setupExcelUploads() {
     const fileInputAW = document.getElementById('file-input-aw');
     
     if (uploadBtnAW && fileInputAW) {
+        // Update to accept .xlsm files
+        fileInputAW.setAttribute('accept', '.xlsx,.xls,.xlsm');
+        
         const newBtn = uploadBtnAW.cloneNode(true);
         uploadBtnAW.parentNode.replaceChild(newBtn, uploadBtnAW);
         newBtn.addEventListener('click', function(e) {
@@ -451,6 +455,7 @@ function setupExcelUploads() {
             this.value = '';
         });
     }
+
     
     const uploadBtnPL = document.getElementById('upload-excel-pl');
     const fileInputPL = document.getElementById('file-input-pl');
@@ -491,14 +496,125 @@ function setupExcelUploads() {
 }
 
 // ============================================================
-// HANDLE AW UPLOAD
+// AW UPLOAD - UPDATED WITH NEW FILE NAMES AND SHEET COMBINATION
+// ============================================================
+
+// File name patterns for detection
+const AW_FILE_PATTERNS = {
+    fullData: ['S.Link_Engine.xlsm', 'full data'],
+    mahmoud: ['Mahmoud_v.19.xlsm', 'mahmoud'],
+    raed: ['Raed_v.19.xlsm', 'raed'],
+    rabea: ['Rabea.xlsm', 'rabea']
+};
+
+// ============================================================
+// DETECT AW FILE TYPE
+// ============================================================
+function detectAWFileType(fileName) {
+    const lowerName = fileName.toLowerCase().trim();
+    
+    if (lowerName.includes('s.link_engine') || lowerName.includes('full data')) {
+        return 'fullData';
+    }
+    if (lowerName.includes('mahmoud_v.19') || lowerName.includes('mahmoud')) {
+        return 'mahmoud';
+    }
+    if (lowerName.includes('raed_v.19') || lowerName.includes('raed')) {
+        return 'raed';
+    }
+    if (lowerName.includes('rabea') || lowerName.includes('rabea')) {
+        return 'rabea';
+    }
+    
+    // Fallback to sheet name detection
+    return 'unknown';
+}
+
+// ============================================================
+// PARSE AW ROW - Helper function
+// ============================================================
+function parseAWRows(rows, fileType, uploaderName = '') {
+    const results = [];
+    let processedRows = 0;
+    let skippedRows = 0;
+    
+    for (const row of rows) {
+        if (!row || row.length < 10) {
+            skippedRows++;
+            continue;
+        }
+        
+        const jobNumber = String(row[5] || '').trim();
+        const status = String(row[8] || '').trim();
+        
+        if (!jobNumber) {
+            skippedRows++;
+            continue;
+        }
+        
+        // Parse status date based on status
+        let statusDate = null;
+        const statusDateMap = {
+            '1. Under Job-Study': { index: 32 },
+            '2. Under QC Check': { index: 34 },
+            '3. S.C Approval': { index: 36 },
+            '4. Need S.C Approval': { index: 38 },
+            '5. Working on Cromalin': { index: 40 },
+            '6. Need Cromalin Approval': { index: 42 },
+            '7. Cromalin Approval': { index: 44 },
+            '8. Repro: Plate Making': { index: 46 },
+            '9. Plates are Ready': { index: 48 }
+        };
+        
+        if (status && statusDateMap[status]) {
+            const dateInfo = statusDateMap[status];
+            const dateValue = row[dateInfo.index];
+            if (dateValue !== undefined && dateValue !== null && dateValue !== '') {
+                if (typeof dateValue === 'number' && dateValue > 0) {
+                    const excelEpoch = new Date(1899, 11, 30);
+                    const jsDate = new Date(excelEpoch.getTime() + dateValue * 86400000);
+                    if (!isNaN(jsDate.getTime())) statusDate = jsDate;
+                } else if (typeof dateValue === 'string') {
+                    const parsed = new Date(dateValue);
+                    if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) statusDate = parsed;
+                }
+            }
+        }
+        if (!statusDate) statusDate = new Date(1900, 0, 1);
+        
+        let rawStatus = status || 'Unknown';
+        let estimatedDate = null;
+        if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
+            estimatedDate = calculateEstimatedDate(statusDate, 2);
+        }
+        
+        results.push({
+            jobNumber: jobNumber,
+            status: rawStatus,
+            rawStatus: rawStatus,
+            statusDate: statusDate.toISOString(),
+            estimatedDate: estimatedDate ? estimatedDate.toISOString() : null,
+            isFromAW: true,
+            uploadedBy: uploaderName || 'Unknown',
+            uploadedAt: new Date().toISOString()
+        });
+        
+        processedRows++;
+    }
+    
+    console.log(`📊 Processed ${processedRows} rows (${skippedRows} skipped)`);
+    return results;
+}
+
+// ============================================================
+// HANDLE AW UPLOAD - UPDATED VERSION
 // ============================================================
 // ============================================================
-// HANDLE AW UPLOAD - WITH PERMISSION CHECKS
+// HANDLE AW UPLOAD - STRICT VALIDATION
 // ============================================================
 function handleAWUpload(file) {
     // ============================================================
-    // PERMISSION CHECK - Only Admin and AW Group can upload AW files
+    // PERMISSION CHECK
     // ============================================================
     if (!canUploadAW()) {
         showNotification('❌ You don\'t have permission to upload AW files', 'error');
@@ -506,7 +622,37 @@ function handleAWUpload(file) {
         return;
     }
     
-    console.log(`📤 Uploading AW Excel file: ${file.name} (User: ${currentUserProfile?.display_name || 'Unknown'}, Role: ${getCurrentRole()})`);
+    const fileName = file.name;
+    console.log(`📤 Uploading AW Excel file: ${fileName} (User: ${currentUserProfile?.display_name || 'Unknown'}, Role: ${getCurrentRole()})`);
+    
+    // ============================================================
+    // STRICT FILE VALIDATION - Reject PL files
+    // ============================================================
+    const lowerName = fileName.toLowerCase();
+    
+    // ⭐ CRITICAL: Reject PLAN-WEEK files (PL uploads)
+    if (lowerName.includes('plan-week') || lowerName.includes('planning')) {
+        showNotification('❌ This is a PL (Planning) file! Please use the PL upload button.', 'error');
+        console.warn(`⚠️ Rejected PL file from AW upload: ${fileName}`);
+        return;
+    }
+    
+    // ⭐ CRITICAL: Validate this is an AW file
+    const isValidAWFile = 
+        lowerName.includes('mahmoud') ||
+        lowerName.includes('raed') ||
+        lowerName.includes('rabea') ||
+        lowerName.includes('rabea') ||
+        lowerName.includes('s.link_engine') ||
+        lowerName.includes('full data') ||
+        lowerName.includes('aw');
+    
+    if (!isValidAWFile) {
+        showNotification('❌ Invalid AW file. Please upload a valid AW file (Mahmoud, Raed, rabea, or Full Data).', 'error');
+        console.warn(`⚠️ Rejected invalid AW file: ${fileName}`);
+        return;
+    }
+    
     showUploadProgress('📖 Reading AW file...', 10);
     
     const reader = new FileReader();
@@ -517,129 +663,208 @@ function handleAWUpload(file) {
             const workbook = XLSX.read(data, { type: 'array' });
             
             const sheetNames = workbook.SheetNames;
-            const detected = detectUploader(sheetNames);
-            const firstSheet = workbook.Sheets[sheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+            console.log(`📊 Available sheets: ${sheetNames.join(', ')}`);
             
-            showUploadProgress('🔄 Processing AW data...', 50);
-            const rows = jsonData.slice(3);
-            let awJobsFound = 0;
-            let awJobsUpdated = 0;
+            // ============================================================
+            // DETECT FILE TYPE
+            // ============================================================
+            const fileType = detectAWFileType(fileName);
+            console.log(`📊 Detected file type: ${fileType}`);
             
-            // Collect data to save to Supabase
-            const awDataToSave = {};
-            const jobsToUpdate = [];
+            let allRows = [];
+            let processedSheetInfo = [];
+            let validSheetsFound = false;
             
-            rows.forEach((row) => {
-                if (!row || row.length < 10) return;
-                const jobNumber = String(row[5] || '').trim();
-                const status = String(row[8] || '').trim();
-                if (!jobNumber) return;
+            // ============================================================
+            // CASE 1: Full Data file - ONLY process "Full Data" or "Data" sheet
+            // ============================================================
+            if (fileType === 'fullData') {
+                console.log('📊 Processing Full Data file...');
                 
-                // ============================================================
-                // PARSE STATUS DATE
-                // ============================================================
-                let statusDate = null;
-                const statusDateMap = {
-                    '1. Under Job-Study': { index: 32 },
-                    '2. Under QC Check': { index: 34 },
-                    '3. S.C Approval': { index: 36 },
-                    '4. Need S.C Approval': { index: 38 },
-                    '5. Working on Cromalin': { index: 40 },
-                    '6. Need Cromalin Approval': { index: 42 },
-                    '7. Cromalin Approval': { index: 44 },
-                    '8. Repro: Plate Making': { index: 46 },
-                    '9. Plates are Ready': { index: 48 }
-                };
+                // Find the "Full Data" sheet - strict matching
+                const fullDataSheet = sheetNames.find(name => 
+                    name.toLowerCase().trim() === 'full data' || 
+                    name.toLowerCase().trim() === 'fulldata' ||
+                    name.toLowerCase().trim() === 'data'
+                );
                 
-                if (status && statusDateMap[status]) {
-                    const dateInfo = statusDateMap[status];
-                    const dateValue = row[dateInfo.index];
-                    if (dateValue !== undefined && dateValue !== null && dateValue !== '') {
-                        if (typeof dateValue === 'number' && dateValue > 0) {
-                            const excelEpoch = new Date(1899, 11, 30);
-                            const jsDate = new Date(excelEpoch.getTime() + dateValue * 86400000);
-                            if (!isNaN(jsDate.getTime())) statusDate = jsDate;
-                        } else if (typeof dateValue === 'string') {
-                            const parsed = new Date(dateValue);
-                            if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) statusDate = parsed;
-                        }
+                if (fullDataSheet) {
+                    const sheet = workbook.Sheets[fullDataSheet];
+                    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                    const rows = jsonData.slice(3); // Skip header rows
+                    
+                    console.log(`📊 Processing Full Data sheet: ${fullDataSheet} (${rows.length} rows)`);
+                    const parsed = parseAWRows(rows, 'fullData', 'Full Data');
+                    allRows = allRows.concat(parsed);
+                    processedSheetInfo.push({ sheet: fullDataSheet, rows: parsed.length });
+                    validSheetsFound = true;
+                } else {
+                    console.warn(`⚠️ No "Full Data" sheet found in ${fileName}`);
+                    showNotification('⚠️ "Full Data" sheet not found in the file', 'warning');
+                    hideUploadProgress();
+                    return;
+                }
+            }
+            
+            // ============================================================
+            // CASE 2: Mahmoud, Raed, or rabea - ONLY process Main + Archive
+            // ============================================================
+            else if (fileType === 'mahmoud' || fileType === 'raed' || fileType === 'rabea') {
+                const displayName = fileType.charAt(0).toUpperCase() + fileType.slice(1);
+                console.log(`📊 Processing ${displayName} file (Main + Archive only)...`);
+                
+                // Find the main sheet (strict match by name)
+                let mainSheetName = null;
+                let archiveSheetName = null;
+                
+                for (const name of sheetNames) {
+                    const lowerName = name.toLowerCase();
+                    if (lowerName.includes(fileType) || lowerName.includes('main')) {
+                        mainSheetName = name;
+                    }
+                    if (lowerName.includes('archive')) {
+                        archiveSheetName = name;
                     }
                 }
-                if (!statusDate) statusDate = new Date(1900, 0, 1);
                 
-                let rawStatus = status || 'Unknown';
-                let estimatedDate = null;
-                if (rawStatus === '8. Repro: Plate Making' || rawStatus === '5. Working on Cromalin') {
-                    estimatedDate = calculateEstimatedDate(statusDate, 2);
+                // Process Main sheet - REQUIRED
+                if (mainSheetName) {
+                    const sheet = workbook.Sheets[mainSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                    const rows = jsonData.slice(3);
+                    console.log(`📊 Processing Main sheet: ${mainSheetName} (${rows.length} rows)`);
+                    const parsed = parseAWRows(rows, fileType, displayName);
+                    allRows = allRows.concat(parsed);
+                    processedSheetInfo.push({ sheet: mainSheetName, rows: parsed.length });
+                    validSheetsFound = true;
+                } else {
+                    console.warn(`⚠️ No Main sheet found for ${displayName}`);
+                    showNotification(`⚠️ Main sheet not found for ${displayName}`, 'warning');
+                    hideUploadProgress();
+                    return;
                 }
                 
-                // ============================================================
-                // STORE AW DATA IN MEMORY
-                // ============================================================
+                // Process Archive sheet - OPTIONAL
+                if (archiveSheetName) {
+                    const sheet = workbook.Sheets[archiveSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                    const rows = jsonData.slice(3);
+                    console.log(`📊 Processing Archive sheet: ${archiveSheetName} (${rows.length} rows)`);
+                    const parsed = parseAWRows(rows, fileType, displayName + ' (Archive)');
+                    allRows = allRows.concat(parsed);
+                    processedSheetInfo.push({ sheet: archiveSheetName, rows: parsed.length });
+                } else {
+                    console.log(`ℹ️ No Archive sheet found for ${displayName}`);
+                }
+            }
+            
+            // ============================================================
+            // CASE 3: Unknown file type - REJECT
+            // ============================================================
+            else {
+                console.warn(`⚠️ Unknown file type: ${fileType} - rejecting upload`);
+                showNotification('❌ Unknown file type. Please upload a valid AW file.', 'error');
+                hideUploadProgress();
+                return;
+            }
+            
+            // ============================================================
+            // VALIDATE - Must have processed at least one sheet
+            // ============================================================
+            if (!validSheetsFound || allRows.length === 0) {
+                console.warn(`⚠️ No valid AW data found in ${fileName}`);
+                showNotification('⚠️ No valid AW data found in the file. Please check the file format.', 'warning');
+                hideUploadProgress();
+                return;
+            }
+            
+            console.log(`📊 Total rows processed: ${allRows.length}`);
+            
+            // ============================================================
+            // DEDUPLICATE by job number (keep first occurrence)
+            // ============================================================
+            const uniqueRowsMap = new Map();
+            let duplicateCount = 0;
+            
+            for (const row of allRows) {
+                if (uniqueRowsMap.has(row.jobNumber)) {
+                    duplicateCount++;
+                    continue;
+                }
+                uniqueRowsMap.set(row.jobNumber, row);
+            }
+            
+            const uniqueRows = Array.from(uniqueRowsMap.values());
+            console.log(`📊 ${uniqueRows.length} unique jobs (${duplicateCount} duplicates removed)`);
+            
+            if (uniqueRows.length === 0) {
+                showUploadProgress('⚠️ No valid AW data found in file', 100);
+                setTimeout(() => hideUploadProgress(), 3000);
+                showNotification('⚠️ No valid AW data found in the file', 'warning');
+                return;
+            }
+            
+            showUploadProgress(`🔄 Processing ${uniqueRows.length} AW records...`, 40);
+            
+            // ============================================================
+            // UPDATE DATA (rest of the existing code)
+            // ============================================================
+            const awDataToSave = {};
+            let awJobsUpdated = 0;
+            
+            for (const row of uniqueRows) {
+                const { jobNumber, status, rawStatus, statusDate, estimatedDate } = row;
+                
+                // Store in memory
                 awData[jobNumber] = {
-                    status: rawStatus,
+                    status: status,
                     rawStatus: rawStatus,
-                    statusDate: statusDate.toISOString(),
-                    estimatedDate: estimatedDate ? estimatedDate.toISOString() : null,
+                    statusDate: statusDate,
+                    estimatedDate: estimatedDate,
                     isFromAW: true,
                     uploadedBy: currentUserProfile?.display_name || 'Unknown',
                     uploadedAt: new Date().toISOString()
                 };
                 
-                // ============================================================
-                // PREPARE FOR SUPABASE SAVE
-                // ============================================================
+                // Prepare for Supabase
                 awDataToSave[jobNumber] = {
                     job_number: jobNumber,
-                    status: rawStatus,
+                    status: status,
                     raw_status: rawStatus,
-                    status_date: statusDate.toISOString(),
-                    estimated_date: estimatedDate ? estimatedDate.toISOString() : null,
+                    status_date: statusDate,
+                    estimated_date: estimatedDate,
                     is_from_aw: true
                 };
                 
-                // ============================================================
-                // UPDATE JOB IF IT EXISTS
-                // ============================================================
+                // Update job if it exists
                 let jobId = findJobIdByNumber(jobNumber);
                 if (jobId && jobDatabase[jobId]) {
-                    // Only update AW-related fields (not PL fields)
-                    jobDatabase[jobId].awStatus = rawStatus;
-                    jobDatabase[jobId].status = rawStatus;
-                    jobDatabase[jobId].statusDate = statusDate.toISOString();
+                    jobDatabase[jobId].awStatus = status;
+                    jobDatabase[jobId].status = status;
+                    jobDatabase[jobId].statusDate = statusDate;
                     jobDatabase[jobId].rawAWStatus = rawStatus;
-                    jobDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
+                    jobDatabase[jobId].estimatedDate = estimatedDate;
                     
                     if (plDatabase[jobId]) {
-                        plDatabase[jobId].prepressStatus = rawStatus;
-                        plDatabase[jobId].statusDate = statusDate.toISOString();
+                        plDatabase[jobId].prepressStatus = status;
+                        plDatabase[jobId].statusDate = statusDate;
                         plDatabase[jobId].rawAWStatus = rawStatus;
-                        plDatabase[jobId].estimatedDate = estimatedDate ? estimatedDate.toISOString() : null;
+                        plDatabase[jobId].estimatedDate = estimatedDate;
                     }
                     
                     awJobsUpdated++;
-                    jobsToUpdate.push(jobId);
                 }
-                awJobsFound++;
-            });
+            }
             
             // ============================================================
-            // SAVE AW DATA TO SUPABASE
+            // SAVE TO SUPABASE
             // ============================================================
             if (Object.keys(awDataToSave).length > 0) {
-                showUploadProgress(`💾 Saving ${Object.keys(awDataToSave).length} AW records to database...`, 70);
+                showUploadProgress(`💾 Saving ${Object.keys(awDataToSave).length} AW records...`, 60);
                 
-                // Save AW data using the corrected function
                 supabaseSaveMultipleAWData(awDataToSave).then(success => {
                     if (success) {
                         console.log(`✅ ${Object.keys(awDataToSave).length} AW records saved to Supabase`);
-                        // Log to audit
-                        logAuditAction('AW_UPLOAD', 'aw_data', Object.keys(awDataToSave).length + ' records', {
-                            recordsCount: Object.keys(awDataToSave).length,
-                            jobsUpdated: awJobsUpdated,
-                            fileName: file.name
-                        });
                     } else {
                         console.warn('⚠️ Some AW records may not have been saved');
                     }
@@ -647,23 +872,19 @@ function handleAWUpload(file) {
             }
             
             // ============================================================
-            // UPDATE JOBS IN SUPABASE (AW fields only)
+            // UPDATE EXISTING JOBS
             // ============================================================
             if (awJobsUpdated > 0) {
-                showUploadProgress(`💾 Updating ${awJobsUpdated} jobs in database...`, 80);
+                showUploadProgress(`💾 Updating ${awJobsUpdated} jobs...`, 75);
                 
-                // Update each job that was modified (only AW fields)
                 for (const [jobId, jobData] of Object.entries(jobDatabase)) {
                     if (jobData.rawAWStatus && jobData.rawAWStatus !== 'Unknown' && jobData.rawAWStatus !== 'Missing Data') {
                         const snakeData = convertCamelToSnake(jobData);
-                        snakeData.job_id = jobId;
-                        
-                        // Only include AW-related fields to prevent overwriting PL data
                         const awFieldsOnly = {
                             job_id: jobId,
-                            aw_status: snakeData.aw_status,
-                            raw_aw_status: snakeData.raw_aw_status,
-                            status: snakeData.status,
+                            aw_status: snakeData.aw_status || snakeData.status,
+                            raw_aw_status: snakeData.raw_aw_status || snakeData.rawAWStatus,
+                            status: snakeData.status || snakeData.aw_status,
                             status_date: snakeData.status_date,
                             estimated_date: snakeData.estimated_date
                         };
@@ -680,21 +901,24 @@ function handleAWUpload(file) {
             // ============================================================
             // UPDATE UPLOAD STATUS
             // ============================================================
-            if (detected.fullData) {
-                updateUploadStatus('mahmoud');
-                updateUploadStatus('raed');
-                updateUploadStatus('rabia');
-                showNotification(`✅ Full Data uploaded - ${awJobsUpdated} jobs updated, ${awJobsFound} AW records`, 'success');
-            } else {
-                if (detected.mahmoud) updateUploadStatus('mahmoud');
-                if (detected.raed) updateUploadStatus('raed');
-                if (detected.rabia) updateUploadStatus('rabia');
-                showNotification(`✅ AW data uploaded - ${awJobsUpdated} jobs updated, ${awJobsFound} records`, 'success');
+            const uploaderMap = {
+                'mahmoud': 'mahmoud',
+                'raed': 'raed', 
+                'rabea': 'rabea',
+                'fullData': 'mahmoud'
+            };
+            
+            if (uploaderMap[fileType]) {
+                updateUploadStatus(uploaderMap[fileType]);
+                if (fileType === 'fullData') {
+                    updateUploadStatus('qasem');
+                }
             }
             
             // ============================================================
             // UPDATE UI
             // ============================================================
+            showUploadProgress('🔄 Updating UI...', 90);
             populateProductionFeed();
             applyFilter();
             updateFilterCounts();
@@ -703,22 +927,16 @@ function handleAWUpload(file) {
             syncFilterCheckboxes();
             
             // ============================================================
-            // LOG TO AUDIT (if available)
+            // SHOW SUMMARY
             // ============================================================
-            if (typeof logAuditAction === 'function') {
-                logAuditAction('AW_UPLOAD', 'aw_data', file.name, {
-                    recordsFound: awJobsFound,
-                    jobsUpdated: awJobsUpdated,
-                    uploader: currentUserProfile?.display_name || 'Unknown',
-                    role: getCurrentRole(),
-                    detectedUploaders: detected
-                });
-            }
+            const sheetInfo = processedSheetInfo.map(s => `${s.sheet} (${s.rows})`).join(', ');
+            const summary = `✅ AW upload complete: ${uniqueRows.length} records from ${processedSheetInfo.length} sheets (${awJobsUpdated} jobs updated)`;
             
-            showUploadProgress(`✅ AW upload complete: ${awJobsUpdated} jobs updated`, 100);
+            showUploadProgress(`✅ Complete!`, 100);
             setTimeout(() => hideUploadProgress(), 1500);
             
-            console.log(`✅ AW upload completed by ${currentUserProfile?.display_name || 'Unknown'} (${getCurrentRole()}): ${awJobsFound} records, ${awJobsUpdated} jobs updated`);
+            showNotification(`✅ AW: ${uniqueRows.length} records from ${sheetInfo}`, 'success');
+            console.log(`✅ AW upload completed: ${summary}`);
             
         } catch (error) {
             console.error('❌ Error processing AW file:', error);
@@ -738,10 +956,7 @@ function handleAWUpload(file) {
     reader.readAsArrayBuffer(file);
 }
 
-// ============================================================
-// HANDLE PL UPLOAD - OPTIMIZED WITH BATCH PROCESSING & PRIORITY
-// ============================================================
-// ============================================================
+
 // HANDLE PL UPLOAD - OPTIMIZED WITH BATCH PROCESSING & PRIORITY
 // ============================================================
 async function handlePLUpload(file) {
